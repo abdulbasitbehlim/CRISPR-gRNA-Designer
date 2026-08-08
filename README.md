@@ -25,8 +25,6 @@ Anyone (including you on phone/tablet) can open that single link and use the too
 ## Table of contents
 
 - [Features](#features)
-- [One-click deploy to Streamlit Cloud](#one-click-deploy-to-streamlit-cloud)
-- [Upload to your GitHub profile](#upload-to-your-github-profile)
 - [Local run (any OS)](#local-run-any-os)
 - [Usage](#usage)
 - [Project structure](#project-structure)
