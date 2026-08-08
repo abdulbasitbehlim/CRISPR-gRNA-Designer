@@ -16,9 +16,7 @@ Gene name + Organism  →  NCBI / Ensembl fetch  →  gRNA design & scoring  →
 
 ## 🚀 One-click live demo (recommended)
 
-After you deploy (see steps below), your app will be available at a permanent public URL like:
-
-**https://crispr-grna-designer.streamlit.app**
+**https://crispr-grna-designer-v6mhgxd4o3eqbhgur3anvh.streamlit.app/**
 
 Anyone (including you on phone/tablet) can open that single link and use the tool immediately. No Python, no install, no account.
 
@@ -54,64 +52,6 @@ Anyone (including you on phone/tablet) can open that single link and use the too
 - 📄 Paste-your-own-sequence mode for organisms not in public databases
 - 📱 Fully usable on mobile browsers (responsive Streamlit layout)
 
-## One-click deploy to Streamlit Cloud
-
-This is the easiest way to get a permanent public link that works on desktop, tablet and phone.
-
-### Prerequisites
-1. A free [GitHub](https://github.com) account
-2. A free [Streamlit Community Cloud](https://share.streamlit.io) account (sign in with GitHub)
-
-### Steps
-
-1. **Push this project to your GitHub** (see next section).
-2. Go to [https://share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
-3. Click **“New app”**.
-4. Select:
-   - Repository: `abdulbasitbehlim/crispr-grna-designer`
-   - Branch: `main`
-   - Main file path: `app.py`
-5. Click **Deploy**.
-
-Streamlit Cloud will install the dependencies from `requirements.txt` and give you a public URL (e.g. `https://crispr-grna-designer-xyz.streamlit.app`).
-
-You can later change the subdomain in the app settings.
-
-**That’s it — one link that works everywhere.**
-
-### Optional: custom domain / badge
-
-After deploy, replace the placeholder badge at the top of this README with your real app URL:
-
-```markdown
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://YOUR-APP-NAME.streamlit.app)
-```
-
-## Upload to your GitHub profile
-
-### Option A – GitHub website (easiest)
-
-1. Go to [https://github.com/new](https://github.com/new).
-2. Repository name: `crispr-grna-designer` (or any name you like).
-3. Make it **Public**.
-4. Do **not** initialize with README (we already have one).
-5. Click **Create repository**.
-6. On the next page, upload all the files from this folder (drag-and-drop works) **or** use the Git instructions below.
-
-### Option B – Git command line (recommended)
-
-```bash
-# 1. Create an empty repo on GitHub first (see Option A steps 1-5)
-
-# 2. On your computer
-cd crispr-grna-designer
-git init
-git add .
-git commit -m "Initial commit: CRISPR gRNA Designer"
-git branch -M main
-git remote add origin https://github.com/abdulbasitbehlim/crispr-grna-designer.git
-git push -u origin main
-```
 
 ## Local run (any OS)
 
