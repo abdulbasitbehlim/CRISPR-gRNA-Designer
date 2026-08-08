@@ -14,7 +14,7 @@ Gene name + Organism  →  NCBI / Ensembl fetch  →  gRNA design & scoring  →
 
 > **Works on every OS (Windows / macOS / Linux) and on mobile** — just open the live web link in any modern browser. No installation required for the hosted version.
 
-## 🚀 One-click live demo (recommended)
+## 🚀 One-click link to access the CRISPR gRNA Designer tool
 
 **https://crispr-grna-designer-v6mhgxd4o3eqbhgur3anvh.streamlit.app/**
 
