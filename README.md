@@ -1,180 +1,225 @@
-# 🧬 CRISPR gRNA Designer
+# CRISPR Studio — gRNA Designer
 
-[![Tests](https://github.com/abdulbasitbehlim/crispr-grna-designer/actions/workflows/tests.yml/badge.svg)](https://github.com/abdulbasitbehlim/crispr-grna-designer/actions/workflows/tests.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/built%20with-Streamlit-FF4B4B.svg)](https://streamlit.io/)
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io)
+An interactive Python and Streamlit workbench for discovering, ranking, reviewing, and exporting **SpCas9 (NGG)** guide RNA candidates.
 
-A lightweight, open-source Python tool that turns a **gene name + organism** into a ranked list of SpCas9 guide RNAs for **Knockout** or **Knockdown** experiments — no manual sequence lookup required.
+**Live app:** [Open CRISPR Studio](https://crispr-grna-designer-v6mhgxd4o3eqbhgur3anvh.streamlit.app/)
 
+> Research and educational use only. This application creates a candidate shortlist; it does not replace genome-wide specificity analysis, genomic/exon mapping, or experimental validation.
+
+## What is new in version 2.0
+
+- Polished responsive dashboard with a built-in **dark/light mode toggle**
+- Gene lookup from **Ensembl** or **NCBI**, plus DNA/RNA/FASTA paste mode
+- Both-strand SpCas9 discovery with a transparent **0-100 activity ranking**
+- Interactive guide landscape, GC distribution, strand balance, and score gauge
+- Guide-by-guide score explanation and validation checklist
+- Optional **PAM-aware local-reference similarity screen** on both DNA strands
+- Specificity score, mismatch positions, seed-region mismatches, and risk tiers
+- Downloadable **CSV, Excel, FASTA, and JSON** outputs
+- Clear scientific limitations and experimental reminders inside the app
+- Offline unit tests for sequence cleaning, PAM scanning, scoring, validation, and off-target logic
+
+## Analysis workflow
+
+```text
+Gene symbol + organism OR pasted sequence
+                    │
+                    ▼
+        NCBI / Ensembl / manual input
+                    │
+                    ▼
+        Scan both strands for 20 nt + NGG
+                    │
+                    ▼
+      Activity ranking + validation checks
+                    │
+           optional local reference
+                    ▼
+      PAM-aware near-match specificity screen
+                    │
+                    ▼
+    Interactive report + CSV/XLSX/FASTA/JSON
 ```
-Gene name + Organism  →  NCBI / Ensembl fetch  →  gRNA design & scoring  →  ranked table + download
-```
 
-> **Works on every OS (Windows / macOS / Linux) and on mobile** — just open the live web link in any modern browser. No installation required for the hosted version.
+## Run locally
 
-## 🚀 One-click link to access the CRISPR gRNA Designer tool
-
-**https://crispr-grna-designer-v6mhgxd4o3eqbhgur3anvh.streamlit.app/**
-
-Anyone (including you on phone/tablet) can open that single link and use the tool immediately. No Python, no install, no account.
-
----
-
-## Table of contents
-
-- [Features](#features)
-- [Local run (any OS)](#local-run-any-os)
-- [Usage](#usage)
-- [Project structure](#project-structure)
-- [How guides are scored](#how-guides-are-scored)
-- [Validation & limitations](#validation--limitations)
-- [Running the tests](#running-the-tests)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [Scientific references](#scientific-references)
-- [License](#license)
-
-## Features
-
-- 🔎 Automatic sequence retrieval from **NCBI** (Entrez) or the **Ensembl** REST API
-- ✂️ SpCas9 (NGG) guide design scanned on both DNA strands
-- 🎯 Application-aware ranking:
-  - **Knockout** — mild preference for guides in the early region of the sequence
-  - **Knockdown** — strong preference for 5′-proximal guides (near the TSS)
-- 📊 Transparent, explainable on-target score inspired by Doench / Hsu / Moreno-Mateos rules
-- ✅ Built-in validation checklist for each candidate guide
-- 📥 CSV / Excel export
-- 🧪 Pure Python core with unit tests — easy to embed, extend, or audit
-- 📄 Paste-your-own-sequence mode for organisms not in public databases
-- 📱 Fully usable on mobile browsers (responsive Streamlit layout)
-
-
-## Local run (any OS)
-
-Works on Windows, macOS, Linux, and even in cloud IDEs.
+Python 3.10 or newer is recommended.
 
 ```bash
-git clone https://github.com/abdulbasitbehlim/crispr-grna-designer.git
-cd crispr-grna-designer
-python -m venv venv
+git clone https://github.com/abdulbasitbehlim/CRISPR-gRNA-Designer.git
+cd CRISPR-gRNA-Designer
 
-# Activate
-#   macOS / Linux:
-source venv/bin/activate
-#   Windows (Command Prompt):
-venv\Scripts\activate
-#   Windows (PowerShell):
-venv\Scripts\Activate.ps1
+python -m venv .venv
+```
 
+Activate the environment:
+
+```bash
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+
+# macOS / Linux
+source .venv/bin/activate
+```
+
+Install and start the app:
+
+```bash
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Then open the URL shown in the terminal (usually http://localhost:8501).  
-The same URL works on phones/tablets on the same Wi-Fi if you use `--server.address 0.0.0.0`.
+Open the local URL printed by Streamlit, normally `http://localhost:8501`.
 
-## Usage
+## Use the dashboard
 
-### Web dashboard (local or cloud)
+### Gene lookup
 
-1. Enter a gene symbol (e.g. `TP53`) and organism (e.g. `Homo sapiens`).
-2. Choose the sequence source (NCBI or Ensembl) and the application (Knockout or Knockdown).
-3. Click **Design gRNAs**.
-4. Download results as CSV or Excel.
+1. Choose **Gene lookup**.
+2. Enter an official gene symbol such as `TP53`, `BRCA1`, or `ACTB`.
+3. Enter the organism, for example `Homo sapiens`.
+4. Choose Ensembl or NCBI and select Knockout or Knockdown/CRISPRi.
+5. Adjust the score threshold and result count in the sidebar.
+6. Select **Design and analyze guides**.
 
-### Python API
+### Paste a sequence
+
+Choose **Paste sequence** and enter plain DNA, RNA, or FASTA. RNA `U` bases are converted to `T`; standard ambiguous IUPAC bases are represented as `N`. The hosted app accepts target sequences up to 50,000 bp.
+
+### Local-reference off-target screen
+
+Enable **Add local-reference off-target screen**, then upload or paste a FASTA/text reference up to 250,000 bp. The app:
+
+- finds NGG-compatible candidate sites on both strands;
+- compares each reference spacer with the query spacer;
+- excludes one exact site as the presumed intended target;
+- reports additional exact or near matches;
+- shows mismatch positions and mismatches in positions 13-20 (the PAM-proximal seed region);
+- assigns an explainable risk tier and local-reference specificity score.
+
+This screen is useful for a plasmid, amplicon, contig, paralog panel, or small reference region. It is intentionally **not presented as a whole-genome off-target search**. Confirm final guides with CRISPOR, CHOPCHOP, Cas-OFFinder, GuideScan, or an equivalent genome-indexed workflow.
+
+## Python API
 
 ```python
 from grna_designer import design_from_gene
 
-acc, desc, seq, guides = design_from_gene(
-    "BRCA1", "Homo sapiens",
-    application="knockout",
+accession, description, sequence, guides = design_from_gene(
+    gene_name="TP53",
+    organism="Homo sapiens",
     source="ensembl",
+    application="knockout",
+    min_score=40,
     max_guides=10,
 )
 
-for g in guides:
-    print(f"{g.sequence}  PAM={g.pam}  score={g.score:.1f}  strand={g.strand}")
+for guide in guides:
+    print(guide.to_dict())
 ```
 
-You can also design guides from a sequence you already have:
+Use your own sequence:
 
 ```python
-from grna_designer import design_guides, validate_guide
+from grna_designer import design_guides
 
-guides = design_guides(my_sequence, application="knockdown", max_guides=15)
-for g in guides[:3]:
-    print(g.to_dict(), validate_guide(g))
+guides = design_guides(
+    sequence=my_target_sequence,
+    application="knockout",
+    min_score=35,
+    max_guides=20,
+    genome_context=optional_reference_sequence,
+    max_mismatches=3,
+)
 ```
+
+Inspect one local-reference screen directly:
+
+```python
+from grna_designer import analyze_offtargets
+
+report = analyze_offtargets(
+    spacer="GCTAGCTAGCTAGCTAGCTA",
+    whole_genome=my_reference_sequence,
+    max_mismatches=3,
+)
+
+print(report.specificity_score)
+for hit in report.hits:
+    print(hit.to_dict())
+```
+
+## How the activity ranking works
+
+The activity value is a transparent heuristic inspired by published SpCas9 design observations. It combines:
+
+- GC content, preferring approximately 40-70%;
+- selected position-specific nucleotide preferences near the PAM;
+- PAM context;
+- poly-G/poly-T and homopolymer penalties;
+- a simple self-complementarity penalty;
+- an application-position adjustment.
+
+Knockout mode mildly favors candidates in the early 30% of the input sequence. Knockdown/CRISPRi mode favors the first 400 bp as a simple 5-prime proxy. Every non-zero contribution can be inspected in the dashboard.
+
+The result is **not the trained Doench Rule Set 2/Azimuth model**, even though some feature choices are literature-inspired. The value should be used to rank candidates inside this app, not compared directly with scores produced by other tools.
+
+## Scientific limitations
+
+1. Database lookup retrieves a representative transcript/cDNA. A candidate may cross an exon-exon junction or lack genomic, isoform, and regulatory context. Map every spacer back to the intended genome assembly and coding exon.
+2. CRISPRi normally requires an experimentally relevant transcription start site window. Transcript position is only an approximation.
+3. The lightweight reference screen does not model DNA/RNA bulges, chromatin accessibility, genetic variants, non-NGG PAMs, or genome-scale repeats.
+4. A high activity or specificity value does not guarantee editing performance or safety.
+5. Use multiple independent guides, non-targeting controls, and orthogonal validation such as amplicon sequencing, ICE/TIDE, RT-qPCR, or Western blot as appropriate.
 
 ## Project structure
 
-```
-crispr-grna-designer/
-├── app.py                  # Streamlit dashboard (entry point for Streamlit Cloud)
-├── grna_designer.py        # Core library: fetch, design, score, validate
-├── test_grna_designer.py   # Unit tests (no network required)
-├── requirements.txt        # Runtime dependencies (used by Streamlit Cloud)
-├── requirements-dev.txt    # Runtime + test dependencies
-├── USER_GUIDE.md           # Plain-language walkthrough
-├── ARCHITECTURE.md         # Design notes & scientific references
-├── CONTRIBUTING.md         # Dev setup & PR guide
-├── LICENSE
-├── README.md
-├── .gitignore
+```text
+CRISPR-gRNA-Designer/
+├── app.py                     # Streamlit dashboard and export workflow
+├── grna_designer.py           # Sequence fetching, design, score, validation, screening
+├── test_grna_designer.py      # Offline unit tests
+├── requirements.txt           # Streamlit Cloud/runtime dependencies
+├── requirements-dev.txt       # Runtime + development dependencies
 ├── .streamlit/
-│   └── config.toml         # Theme & server settings (mobile-friendly)
-└── .github/
-    └── workflows/
-        └── tests.yml       # CI: runs the test suite on every push/PR
+│   └── config.toml            # Theme, security, and upload settings
+├── .github/workflows/
+│   └── tests.yml              # Continuous integration
+├── ARCHITECTURE.md
+├── USER_GUIDE.md
+├── CONTRIBUTING.md
+└── LICENSE
 ```
 
-## How guides are scored
-
-Each candidate spacer gets a transparent 0–100 score built from literature-derived features: GC content window, base preferences at specific positions (notably position 20), PAM identity, homopolymer penalties, and a simple self-complementarity check — plus an application-specific positional bias (early region for Knockout, 5′-proximal for Knockdown). Full details and citations are in [`ARCHITECTURE.md`](ARCHITECTURE.md).
-
-## Validation & limitations
-
-1. Every guide is checked with an internal `validate_guide()` function (length, PAM, GC range, homopolymers, score threshold).
-2. **Always** cross-check top candidates on [CRISPOR](https://crispor.tefor.net) or [CHOPCHOP](https://chopchop.cbu.uib.no) — this tool does **not** perform full genome-wide off-target search by default.
-3. Confirm experimentally (ICE / TIDE / NGS, Western blot, or RT-qPCR) before drawing conclusions.
-
-Other known limitations are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md#6-known-limitations).
-
-## Running the tests
+## Tests
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -v
+pytest -q
 ```
 
-The test suite covers PAM scanning, scoring, validation and off-target logic using synthetic sequences (no network access needed).
+All sequence-processing tests run without NCBI or Ensembl network access.
 
-## Roadmap
+## Deploy on Streamlit Community Cloud
 
-- [ ] Integrate a proper ML on-target model (Rule Set 2 / Azimuth-style)
-- [ ] Optional local off-target module via Cas-OFFinder / Bowtie2
-- [ ] Support for Cas12a (TTTV PAM), base editors, and prime-editing pegRNAs
-- [ ] Batch mode: gene list → full Excel guide library
-- [ ] Docker image for one-command deployment
+1. Push the updated files to the `main` branch of this GitHub repository.
+2. In Streamlit Community Cloud, select **Create app**.
+3. Choose this repository and branch.
+4. Set the main file path to `app.py`.
+5. Deploy or reboot the existing app.
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md#7-possible-extensions) for more detail.
+The existing public URL stays the same when the connected repository and app entry point are unchanged.
 
-## Contributing
+NCBI asks API clients to identify themselves. For production use, set an `NCBI_EMAIL` environment variable to a monitored contact email. No API key is required for normal low-volume use.
 
-Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to set up a dev environment, run tests, and submit a pull request.
+## Primary references
 
-## Scientific references
-
-- Jinek et al., *Science* 2012 — Cas9 mechanism and PAM requirement
-- Doench et al., *Nature Biotechnology* 2014 & 2016 — on-target scoring rules
-- Hsu et al., *Nature Biotechnology* 2013 — off-target / seed-region considerations
-- Moreno-Mateos et al., *Nature Methods* 2015 — CRISPRscan on-target features
-- Community best practices from [CRISPOR](https://crispor.tefor.net) and [CHOPCHOP](https://chopchop.cbu.uib.no)
+- Jinek M. et al. *Science* (2012), [doi:10.1126/science.1225829](https://doi.org/10.1126/science.1225829)
+- Hsu P.D. et al. *Nature Biotechnology* (2013), [doi:10.1038/nbt.2647](https://doi.org/10.1038/nbt.2647)
+- Doench J.G. et al. *Nature Biotechnology* (2016), [doi:10.1038/nbt.3437](https://doi.org/10.1038/nbt.3437)
+- Moreno-Mateos M.A. et al. *Nature Methods* (2015), [doi:10.1038/nmeth.3543](https://doi.org/10.1038/nmeth.3543)
 
 ## License
 
-Released under the [MIT License](LICENSE). If you use this tool in published research, please cite the scoring papers above and the public databases (NCBI, Ensembl) you queried.
+Released under the [MIT License](LICENSE).
+
