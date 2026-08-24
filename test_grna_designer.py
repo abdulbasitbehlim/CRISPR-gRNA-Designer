@@ -15,12 +15,15 @@ import pytest
 
 from grna_designer import (
     GuideRNA,
+    analyze_offtargets,
+    clean_dna_sequence,
     design_guides,
     validate_guide,
     _gc_content,
     _has_homopolymer,
     _doench_like_score,
     calculate_offtarget_score,
+    score_breakdown,
 )
 
 
@@ -33,6 +36,14 @@ SAMPLE_SEQUENCE = (
 
 
 class TestSequenceHelpers:
+    def test_clean_fasta_and_rna(self):
+        raw = ">example\nAUGC RYSW\n12"
+        assert clean_dna_sequence(raw) == "ATGCNNNN"
+
+    def test_clean_sequence_rejects_unexpected_punctuation(self):
+        with pytest.raises(ValueError, match="unsupported character"):
+            clean_dna_sequence("ATGC!")
+
     def test_gc_content_all_gc(self):
         assert _gc_content("GGGGCCCC") == 100.0
 
@@ -66,6 +77,16 @@ class TestScoring:
         good_score = _doench_like_score(good_spacer, "AGG")
         poor_score = _doench_like_score(poor_spacer, "AGG")
         assert good_score > poor_score
+
+    def test_application_adjustment_is_clamped_to_100(self):
+        components = score_breakdown(
+            "GCGCGCGCGCGCGCGCGCGG",
+            "CGG",
+            application="knockdown",
+            start=5,
+            sequence_length=1000,
+        )
+        assert 0.0 <= components["Final score"] <= 100.0
 
 
 class TestDesignGuides:
@@ -133,7 +154,8 @@ class TestOffTarget:
         pam = "AGG"
         genome_with_many = (spacer + pam) * 10 + "X" * 50
         count, score, _ = calculate_offtarget_score(spacer, pam, genome_with_many)
-        assert count == 10
+        # One exact match is treated as the intended target and excluded.
+        assert count == 9
         assert 0 <= score <= 100
 
     def test_offtarget_no_matches(self):
@@ -167,6 +189,32 @@ class TestOffTarget:
         assert score == 0.0
         assert "Genome not provided" in notes
 
+    def test_exact_intended_target_is_excluded(self):
+        spacer = "GCTAGCTAGCTAGCTAGCTA"
+        report = analyze_offtargets(spacer, spacer + "AGG")
+        assert report.on_target_excluded is True
+        assert report.hits == ()
+        assert report.specificity_score == 100.0
+
+    def test_additional_exact_copy_is_critical(self):
+        spacer = "GCTAGCTAGCTAGCTAGCTA"
+        report = analyze_offtargets(spacer, (spacer + "AGG") * 2)
+        assert len(report.hits) == 1
+        assert report.hits[0].risk == "Critical"
+        assert report.specificity_score < 50.0
+
+    def test_design_guides_attaches_screening_results(self):
+        guides = design_guides(
+            SAMPLE_SEQUENCE,
+            min_score=0,
+            max_guides=2,
+            genome_context=SAMPLE_SEQUENCE,
+        )
+        assert guides
+        assert all(guide.specificity_score is not None for guide in guides)
+        assert all(guide.off_target_count is not None for guide in guides)
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
