@@ -1,4 +1,4 @@
-# CRISPR Studio â€” gRNA Designer
+# CRISPR Studio — gRNA Designer
 
 An interactive Python and Streamlit workbench for discovering, ranking, reviewing, and exporting **SpCas9 (NGG)** guide RNA candidates.
 
@@ -23,21 +23,21 @@ An interactive Python and Streamlit workbench for discovering, ranking, reviewin
 
 ```text
 Gene symbol + organism OR pasted sequence
-                    â”‚
-                    â–¼
+                    │
+                    ▼
         NCBI / Ensembl / manual input
-                    â”‚
-                    â–¼
+                    │
+                    ▼
         Scan both strands for 20 nt + NGG
-                    â”‚
-                    â–¼
+                    │
+                    ▼
       Activity ranking + validation checks
-                    â”‚
+                    │
            optional local reference
-                    â–¼
+                    ▼
       PAM-aware near-match specificity screen
-                    â”‚
-                    â–¼
+                    │
+                    ▼
     Interactive report + CSV/XLSX/FASTA/JSON
 ```
 
@@ -202,19 +202,19 @@ The result is **not the trained Doench Rule Set 2/Azimuth model**, even though s
 
 ```text
 CRISPR-gRNA-Designer/
-â”œâ”€â”€ app.py                     # Streamlit dashboard and export workflow
-â”œâ”€â”€ grna_designer.py           # Sequence fetching, design, score, validation, screening
-â”œâ”€â”€ test_grna_designer.py      # Offline unit tests
-â”œâ”€â”€ requirements.txt           # Streamlit Cloud/runtime dependencies
-â”œâ”€â”€ requirements-dev.txt       # Runtime + development dependencies
-â”œâ”€â”€ .streamlit/
-â”‚   â””â”€â”€ config.toml            # Theme, security, and upload settings
-â”œâ”€â”€ .github/workflows/
-â”‚   â””â”€â”€ tests.yml              # Continuous integration
-â”œâ”€â”€ ARCHITECTURE.md
-â”œâ”€â”€ USER_GUIDE.md
-â”œâ”€â”€ CONTRIBUTING.md
-â””â”€â”€ LICENSE
+├── app.py                     # Streamlit dashboard and export workflow
+├── grna_designer.py           # Sequence fetching, design, score, validation, screening
+├── test_grna_designer.py      # Offline unit tests
+├── requirements.txt           # Streamlit Cloud/runtime dependencies
+├── requirements-dev.txt       # Runtime + development dependencies
+├── .streamlit/
+│   └── config.toml            # Theme, security, and upload settings
+├── .github/workflows/
+│   └── tests.yml              # Continuous integration
+├── ARCHITECTURE.md
+├── USER_GUIDE.md
+├── CONTRIBUTING.md
+└── LICENSE
 ```
 
 ## Tests
@@ -254,3 +254,5 @@ Useful contributions include bug fixes, additional tests, documentation improvem
 ## License
 
 Released under the [MIT License](LICENSE).
+
+
