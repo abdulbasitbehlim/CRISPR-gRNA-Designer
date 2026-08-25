@@ -1,4 +1,4 @@
-# CRISPR Studio — gRNA Designer
+# CRISPR Studio â€” gRNA Designer
 
 An interactive Python and Streamlit workbench for discovering, ranking, reviewing, and exporting **SpCas9 (NGG)** guide RNA candidates.
 
@@ -23,21 +23,21 @@ An interactive Python and Streamlit workbench for discovering, ranking, reviewin
 
 ```text
 Gene symbol + organism OR pasted sequence
-                    │
-                    ▼
+                    â”‚
+                    â–¼
         NCBI / Ensembl / manual input
-                    │
-                    ▼
+                    â”‚
+                    â–¼
         Scan both strands for 20 nt + NGG
-                    │
-                    ▼
+                    â”‚
+                    â–¼
       Activity ranking + validation checks
-                    │
+                    â”‚
            optional local reference
-                    ▼
+                    â–¼
       PAM-aware near-match specificity screen
-                    │
-                    ▼
+                    â”‚
+                    â–¼
     Interactive report + CSV/XLSX/FASTA/JSON
 ```
 
@@ -99,6 +99,32 @@ Enable **Add local-reference off-target screen**, then upload or paste a FASTA/t
 - assigns an explainable risk tier and local-reference specificity score.
 
 This screen is useful for a plasmid, amplicon, contig, paralog panel, or small reference region. It is intentionally **not presented as a whole-genome off-target search**. Confirm final guides with CRISPOR, CHOPCHOP, Cas-OFFinder, GuideScan, or an equivalent genome-indexed workflow.
+
+## Cross-check results with independent online tools
+
+CRISPR Studio produces a transparent candidate shortlist. Before ordering any guide, cross-check the shortlisted candidates with at least one genome-indexed platform using the same organism, genome assembly, nuclease (**SpCas9**), PAM (**NGG**), and target locus.
+
+> **Important:** This is independent computational cross-checking, not experimental validation. Different tools use different reference data, algorithms, and score scales, so their numerical scores are not directly interchangeable.
+
+| Online tool | Useful cross-check |
+|---|---|
+| [CRISPOR](https://crispor.org/) | Compare guide placement and on-target ranking, then inspect genome-context and predicted off-target results. |
+| [CHOPCHOP](https://chopchop.cbu.uib.no/) | Redesign from a gene, genomic coordinates, or sequence and compare candidate placement and predicted off-targets. |
+| [CRISPick](https://portals.broadinstitute.org/gppx/crispick/public) | Obtain an independent candidate ranking for CRISPR knockout, activation, or interference workflows. |
+| [GuideScan2](https://guidescan.com/py/) | Check genome-aware specificity for supported assemblies or search directly for exported gRNA sequences. |
+| [CRISPRdirect](https://crispr.dbcls.jp/) | Perform an additional sequence-based guide-selection check focused on reducing unintended targets. |
+| [Cas-OFFinder](https://www.rgenome.net/cas-offinder/) | Search a selected reference genome for potential off-target sites with a configurable mismatch limit. |
+
+### Suggested cross-check procedure
+
+1. Export the ranked guide table as CSV or FASTA.
+2. Confirm the intended organism, genome assembly, transcript isoform, coding exon, and genomic locus. If CRISPR Studio retrieved cDNA, map each guide to genomic DNA first because an exon-junction candidate may not exist as a continuous genomic target.
+3. Submit the exact 20 nt spacer in 5-prime to 3-prime orientation and select SpCas9 with an NGG PAM. When a service requests a target sequence, use the relevant genomic sequence rather than relying only on cDNA.
+4. Confirm that the PAM, strand, and genomic coordinate identify the same candidate before comparing results.
+5. Review predicted off-targets, especially additional exact matches, low-mismatch sites, coding-region hits, and repetitive or multi-mapping candidates.
+6. Prefer multiple independent guides that remain acceptable after genome-aware review, then validate editing efficiency and specificity experimentally.
+
+Agreement across independent tools can strengthen confidence in a computational shortlist, but disagreement should be investigated. No online score proves that a guide will be efficient or safe in a biological experiment.
 
 ## Python API
 
@@ -176,19 +202,19 @@ The result is **not the trained Doench Rule Set 2/Azimuth model**, even though s
 
 ```text
 CRISPR-gRNA-Designer/
-├── app.py                     # Streamlit dashboard and export workflow
-├── grna_designer.py           # Sequence fetching, design, score, validation, screening
-├── test_grna_designer.py      # Offline unit tests
-├── requirements.txt           # Streamlit Cloud/runtime dependencies
-├── requirements-dev.txt       # Runtime + development dependencies
-├── .streamlit/
-│   └── config.toml            # Theme, security, and upload settings
-├── .github/workflows/
-│   └── tests.yml              # Continuous integration
-├── ARCHITECTURE.md
-├── USER_GUIDE.md
-├── CONTRIBUTING.md
-└── LICENSE
+â”œâ”€â”€ app.py                     # Streamlit dashboard and export workflow
+â”œâ”€â”€ grna_designer.py           # Sequence fetching, design, score, validation, screening
+â”œâ”€â”€ test_grna_designer.py      # Offline unit tests
+â”œâ”€â”€ requirements.txt           # Streamlit Cloud/runtime dependencies
+â”œâ”€â”€ requirements-dev.txt       # Runtime + development dependencies
+â”œâ”€â”€ .streamlit/
+â”‚   â””â”€â”€ config.toml            # Theme, security, and upload settings
+â”œâ”€â”€ .github/workflows/
+â”‚   â””â”€â”€ tests.yml              # Continuous integration
+â”œâ”€â”€ ARCHITECTURE.md
+â”œâ”€â”€ USER_GUIDE.md
+â”œâ”€â”€ CONTRIBUTING.md
+â””â”€â”€ LICENSE
 ```
 
 ## Tests
@@ -219,7 +245,12 @@ NCBI asks API clients to identify themselves. For production use, set an `NCBI_E
 - Doench J.G. et al. *Nature Biotechnology* (2016), [doi:10.1038/nbt.3437](https://doi.org/10.1038/nbt.3437)
 - Moreno-Mateos M.A. et al. *Nature Methods* (2015), [doi:10.1038/nmeth.3543](https://doi.org/10.1038/nmeth.3543)
 
+## Contributing
+
+Contributors are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, test commands, issue-reporting guidance, and pull-request workflow.
+
+Useful contributions include bug fixes, additional tests, documentation improvements, carefully validated scoring methods, support for additional nucleases/PAMs, and optional genome-aware integrations. Scientific changes should clearly state their assumptions, cite the underlying method or data source, include appropriate tests, and preserve the project's limitation notices.
+
 ## License
 
 Released under the [MIT License](LICENSE).
-
