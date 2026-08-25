@@ -223,3 +223,42 @@ Streamlit's application test runner is used during release checks to load the da
 5. Add alternate nucleases, PAMs, base-editor windows, and prime-editing workflows as separate validated models.
 6. Add batch design with provenance-aware Excel output.
 
+## 15. Position in the CRISPR design-tool landscape
+
+### Positioning statement
+
+CRISPR Studio occupies the **open-source, lightweight, explainable pre-screening layer** of the CRISPR guide-design workflow. It sits between manual sequence/PAM inspection and heavier genome-indexed or integrated laboratory platforms. Its primary value is transparent candidate generation, rapid exploration, portable exports, and an auditable Python implementation—not a claim of superior predictive accuracy.
+
+### Market and use-case comparison
+
+| Category and examples | Primary strength | Relationship to CRISPR Studio |
+|---|---|---|
+| **CRISPR Studio** | Fast SpCas9/NGG shortlisting, visible score contributions, a bounded local-reference screen, local or hosted use, and reusable exports. | Best suited to education, method inspection, reproducible prototyping, and early candidate triage. |
+| **Genome-aware academic web tools:** [CRISPOR](https://crispor.org/), [CHOPCHOP](https://chopchop.cbu.uib.no/), [CRISPick](https://portals.broadinstitute.org/gppx/crispick/public), and [GuideScan2](https://guidescan.com/py/) | Assembly-aware design, established scoring models, genomic annotation, and/or indexed specificity analysis, depending on the platform. | These are complementary downstream cross-checks and direct alternatives when genome context is required before guide ordering. |
+| **Genome-scale off-target engines:** [Cas-OFFinder](https://www.rgenome.net/cas-offinder/), GuideScan2 CLI, or Bowtie2-based pipelines | Search large reference genomes and support more comprehensive specificity workflows. | These provide a stronger specificity assessment than CRISPR Studio's intentionally bounded 250,000 bp local-reference screen. |
+| **Integrated laboratory platforms:** [Benchling](https://www.benchling.com/crispr) and comparable commercial environments | Connect guide design with annotated sequences, experiment records, collaboration, and broader laboratory workflows. | They cover a wider operational workflow; CRISPR Studio remains a smaller, inspectable, portable design workbench. |
+| **Experimental validation:** amplicon sequencing, ICE/TIDE, RT-qPCR, Western blot, and assay-specific controls | Measures editing outcome, functional effect, and observed specificity in the relevant biological system. | This is the required evidence layer after every computational design workflow. |
+
+### Differentiators
+
+- **Explainability:** every activity-score contribution and validation check can be inspected rather than hidden behind a single opaque rank.
+- **Reproducibility:** the design engine is separated from the Streamlit interface and covered by offline unit tests.
+- **Accessibility:** the application can be used through a hosted interface or run locally from an MIT-licensed codebase.
+- **Flexible input:** users can start from NCBI/Ensembl gene lookup or paste DNA, RNA, or FASTA.
+- **Portable outputs:** CSV, Excel, FASTA, and JSON exports support downstream review and automation.
+- **Useful bounded specificity screen:** a plasmid, amplicon, contig, paralog panel, or other small reference can be checked without presenting that result as genome-wide analysis.
+
+### Explicit non-claims
+
+CRISPR Studio does not provide a calibrated editing probability, whole-genome off-target completeness, clinical validation, genomic exon/TSS mapping, or a replacement for a laboratory information-management platform. Its internal scores must not be compared numerically with scores from other tools, and its candidate shortlist must not be treated as proof of efficacy or safety.
+
+### Recommended hand-off workflow
+
+1. Use CRISPR Studio to generate and explain an initial shortlist.
+2. Map each spacer to the intended genome assembly, isoform, and genomic feature; remove exon-junction or incorrectly placed candidates.
+3. Cross-check the exact spacers with at least one established genome-indexed platform and, when appropriate, a dedicated off-target engine.
+4. Select multiple independent guides using the combined genomic, efficiency, and specificity evidence.
+5. Validate the selected guides experimentally with suitable positive, negative, and non-targeting controls.
+
+The defensible product position is therefore: **an open-source and explainable front end for CRISPR guide exploration and education that complements, rather than replaces, established genome-aware design platforms and experimental validation.**
+
