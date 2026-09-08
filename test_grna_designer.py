@@ -8,6 +8,7 @@ from crispri import (
     TSSContext, design_crispri_guides, design_crispri_from_sequence, tss_band,
     _genomic_interval, _genomic_guide_strand,
 )
+from accession_lookup import detect_database, normalize_accession, fetch_accession
 
 SAMPLE_SEQUENCE=(
     'ATGGCTAGCTAGCTAGGCTAGCATCGATCGATCGGATCGATCGATCGATCGGCTAGCTAGCTAGCTAGG'
@@ -105,3 +106,26 @@ def test_crispri_filters_to_tss_window_and_annotates():
     assert all(-50 <= x.tss_distance <= 300 for x in rows)
     assert all(x.guide.application=='crispri' for x in rows)
     assert all(x.transcript_id=='T1' for x in rows)
+
+
+def test_accession_normalization_and_database_detection():
+    assert normalize_accession('  NM_000546.6  ') == 'NM_000546.6'
+    assert detect_database('ENST00000269305') == 'ensembl'
+    assert detect_database('NM_000546.6') == 'ncbi'
+    with pytest.raises(ValueError):
+        normalize_accession('bad id')
+
+
+def test_accession_router_uses_expected_backend(monkeypatch):
+    calls = []
+    class Dummy:
+        accession='X'; sequence='ATGC'; database='dummy'; description='d'; record_url=''; object_type='nucleotide'
+    def fake_ncbi(accession):
+        calls.append(('ncbi', accession)); return Dummy()
+    def fake_ensembl(accession):
+        calls.append(('ensembl', accession)); return Dummy()
+    monkeypatch.setattr('accession_lookup.fetch_ncbi_accession', fake_ncbi)
+    monkeypatch.setattr('accession_lookup.fetch_ensembl_accession', fake_ensembl)
+    fetch_accession('NM_000546.6', 'Auto')
+    fetch_accession('ENST00000269305', 'Auto')
+    assert calls == [('ncbi','NM_000546.6'), ('ensembl','ENST00000269305')]
