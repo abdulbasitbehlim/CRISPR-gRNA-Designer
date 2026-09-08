@@ -1,45 +1,77 @@
-# CRISPR Studio — gRNA Designer v3.1
+# CRISPR Studio — gRNA Designer v3.2.0
 
-An open-source Python/Streamlit workbench for designing and ranking **SpCas9 (20 nt + NGG)** guide RNAs for knockout and CRISPRi experiments.
+CRISPR Studio is an open-source Python/Streamlit workbench for designing and ranking **SpCas9 (20 nt + NGG)** guide RNAs for knockout and TSS-aware CRISPRi workflows.
 
-## What v3.1 adds
+## v3.2.0 highlights
 
-- Restored polished dark/light Streamlit dashboard with guide cards, plots, detailed inspection, exports and methods/limitations views.
-- **True TSS-aware CRISPRi gene design** using the canonical Ensembl transcript rather than a cDNA 5′-position proxy.
-- Strand-aware genomic TSS-window retrieval from Ensembl.
-- CRISPRi filtering to **−50 to +300 bp relative to the annotated TSS**, with **+50 to +100 bp** treated as the preferred placement band for dCas9-KRAB-style repression.
-- Pasted-sequence CRISPRi requires an explicit TSS coordinate instead of guessing one.
-- Genomic assembly, chromosome, transcript, TSS coordinate, guide genomic coordinates and TSS distance are exported for gene-based CRISPRi designs.
-- Native MIT/Hsu off-target scoring and guide-level specificity.
-- Optional Doench Rule Set 2 on-target scoring and Doench CFD off-target scoring through a compatible GuideMaker installation.
+- Professional dark and light Streamlit dashboard with readable controls, metric cards, plots, validation cards and exports.
+- Three target-input modes:
+  - **Gene lookup** through NCBI or Ensembl.
+  - **Accession ID** lookup through NCBI Nucleotide or Ensembl stable IDs.
+  - **Paste sequence** for DNA/RNA/FASTA input.
+- **True TSS-aware CRISPRi** for gene lookup using the canonical Ensembl transcript.
+- Native **MIT/Hsu** off-target scoring and guide-level specificity.
+- Optional **Doench Rule Set 2** on-target scoring and **CFD** off-target scoring through a compatible GuideMaker installation.
 - Multi-contig FASTA-safe local-reference screening.
-- Optional whole-genome off-target analysis through a local/prebuilt GuideScan2 index.
+- Optional whole-genome analysis through a local/prebuilt **GuideScan2** index.
+
+## Architecture
+
+```text
+app.py
+  ├─ grna_designer.py      # SpCas9 discovery, heuristic, MIT, local screening, GuideScan2 adapter
+  ├─ crispri.py            # Ensembl TSS retrieval and TSS-aware CRISPRi ranking
+  └─ accession_lookup.py   # NCBI / Ensembl accession resolution
+```
+
+The Streamlit UI coordinates the workflow but does not reimplement the scientific core.
 
 ## Scientific score separation
 
-CRISPR Studio intentionally keeps different biological concepts separate:
+CRISPR Studio keeps distinct biological concepts separate:
 
 - **Heuristic score** — transparent sequence-quality ranking retained for continuity.
-- **Doench Rule Set 2** — on-target cutting/activity prediction when the optional provider is installed.
+- **Doench Rule Set 2** — on-target activity prediction when the optional provider is installed.
 - **MIT/Hsu specificity** — off-target specificity calculated natively.
-- **CFD** — off-target cleavage likelihood/specificity when the optional provider is installed.
+- **CFD** — per-hit off-target cleavage-risk scoring when the optional provider is installed.
 
-The app does not average these into a misleading single score.
+These values are not averaged into one misleading score.
+
+## Target input modes
+
+### Gene lookup
+
+Enter a gene symbol and organism and choose NCBI or Ensembl. Knockout discovery uses a representative transcript/cDNA. For **CRISPRi**, the app switches to Ensembl genomic annotation, resolves the canonical transcript TSS and retrieves strand-aware genomic DNA around that TSS.
+
+### Accession ID
+
+Choose **Accession ID** and enter a record such as:
+
+- `NM_000546.6`
+- `NC_000017.11`
+- `ENST00000269305`
+- `ENSG00000141510`
+
+Auto mode routes `ENS...` identifiers to Ensembl and other nucleotide accessions to NCBI Nucleotide. The app reports the resolved accession, database, record type and sequence length.
+
+Accession-only CRISPRi is intentionally not inferred because a nucleotide accession does not necessarily define a reliable regulatory TSS. Use **Gene lookup** for true TSS-aware CRISPRi, or paste a genomic sequence with an explicit TSS.
+
+### Paste sequence
+
+Paste plain DNA, RNA or FASTA. For CRISPRi, provide the 1-based TSS position and ensure the sequence is genomic DNA in 5′→3′ transcriptional orientation.
 
 ## CRISPRi workflow
 
 For **Gene lookup → CRISPRi repression**, CRISPR Studio:
 
-1. Resolves the gene in Ensembl.
-2. Selects the canonical transcript when available.
-3. Determines the transcript strand and true genomic TSS.
-4. Retrieves genomic DNA around that TSS in transcriptional orientation.
-5. Finds SpCas9 NGG sites on both strands.
-6. Keeps candidates whose spacer midpoint falls from **−50 to +300 bp** relative to the TSS.
-7. Prioritizes the **+50 to +100 bp** band, then ranks using specificity and on-target metrics.
-8. Reports assembly, chromosome, genomic coordinates, strand, transcript and TSS distance.
-
-For **Paste sequence → CRISPRi repression**, the user must provide the TSS position. The pasted sequence must be genomic DNA in 5′→3′ transcriptional orientation.
+1. resolves the gene in Ensembl;
+2. selects the canonical transcript when available;
+3. determines transcript strand and genomic TSS;
+4. retrieves genomic DNA around the TSS in transcriptional orientation;
+5. finds NGG-compatible SpCas9 sites on both strands;
+6. keeps guides whose spacer midpoint falls from **−50 to +300 bp** relative to TSS;
+7. prioritizes the **+50 to +100 bp** placement band;
+8. reports assembly, chromosome, genomic coordinates, transcript and TSS distance.
 
 ## Installation
 
@@ -55,40 +87,59 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Whole-genome mode with GuideScan2
+For development:
 
-Whole-genome analysis requires the external `guidescan` executable and a matching prebuilt genome index.
+```bash
+pip install -r requirements-dev.txt
+pytest -v
+```
+
+GitHub Actions tests Python 3.10, 3.11 and 3.12.
+
+## Specificity modes
+
+### Local reference
+
+Useful for plasmids, amplicons, bacterial/viral genomes, contigs and paralog panels. Multi-FASTA contigs remain separate, preventing artificial junction sites. The app scans PAM-compatible sites, reports near matches and calculates MIT/Hsu specificity.
+
+### Whole genome with GuideScan2
+
+Whole-genome analysis requires an external `guidescan` executable plus a matching prebuilt genome index available to the machine running Streamlit.
 
 ```bash
 conda install -c bioconda guidescan
-guidescan index genome.fa
 ```
-
-Then choose **Specificity analysis → Whole genome (GuideScan2)** and provide the index path available to the server running Streamlit.
 
 Large genome FASTA/index files should not be committed to this repository.
 
-## Local-reference mode
+## Optional Doench Rule Set 2 / CFD provider
 
-Local-reference analysis is useful for bacterial genomes, viral genomes, plasmids, amplicons, contigs, paralog panels and other custom references. Multi-FASTA records are preserved independently so artificial contig-boundary targets are not created.
+The core attempts to use a compatible GuideMaker installation for Doench Rule Set 2 and CFD. When it is not installed, those fields are reported as unavailable rather than being replaced with a mislabeled heuristic.
 
-## Remaining scientific boundaries
+## Exports
 
-- Knockout gene lookup still begins from a representative transcript/cDNA; shortlisted guides should be mapped to the intended genomic coding exon and assembly before experimental use.
-- Variant-aware filtering, chromatin-state integration and DNA/RNA bulge modeling require additional external genomic resources/workflows.
-- GuideScan2 whole-genome search requires a server/local environment where its executable and genome index are installed; ordinary Streamlit Community Cloud does not automatically provide these large indexes.
-- Computational scores prioritize candidates but do not replace experimental validation.
+The dashboard exports:
 
-## Tests
+- CSV ranked guide table;
+- FASTA synthesis-ready spacer records;
+- JSON structured analysis metadata and guide results.
 
-The repository includes core and Streamlit smoke tests. GitHub Actions runs the test suite on Python 3.10, 3.11 and 3.12.
+CRISPRi exports also include TSS/genomic provenance when available.
+
+## Current scientific boundaries
+
+- Knockout **gene lookup** still begins from representative transcript/cDNA. Shortlisted guides must be mapped to the intended genomic assembly and coding exon before experimental use.
+- Accession lookup retrieves the record requested; it does not automatically infer exon, CDS or promoter biology from arbitrary nucleotide records.
+- Variant-aware filtering, chromatin-state integration and DNA/RNA bulge modeling require additional external genome-aware resources.
+- GuideScan2 whole-genome search requires an installed executable and prebuilt index.
+- Computational scores prioritize candidates but do not replace genome-aware review or experimental validation.
 
 ## Primary references
 
 - Jinek et al. 2012 — programmable Cas9 cleavage.
 - Hsu et al. 2013 — SpCas9 specificity / MIT scoring.
 - Gilbert et al. 2014 — CRISPRi/CRISPRa genome-scale regulation.
-- Horlbeck et al. 2016 — compact CRISPRi/a libraries and TSS-position rules.
+- Horlbeck et al. 2016 — CRISPRi/a libraries and TSS-position rules.
 - Doench et al. 2016 — Rule Set 2 and CFD.
 - GuideScan2 — genome-wide CRISPR guide specificity analysis.
 

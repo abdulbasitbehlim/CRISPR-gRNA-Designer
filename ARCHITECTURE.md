@@ -1,264 +1,241 @@
-# Architecture and scientific design notes
+# CRISPR Studio v3.2.0 — architecture and scientific design
 
 ## 1. Scope
 
-CRISPR Studio is a lightweight SpCas9 guide-candidate workbench. Its job is to make four operations transparent and easy to audit:
+CRISPR Studio is a lightweight, explainable SpCas9 guide-design workbench for research and educational use. The current architecture supports three input paths, two design intents, and three specificity modes while keeping the scientific core separate from the Streamlit presentation layer.
 
-1. obtain or accept a target sequence;
-2. find 20 nt spacers beside NGG PAMs on both strands;
-3. rank candidates with an explainable activity heuristic;
-4. optionally screen those candidates against a small user-supplied reference.
+The application is not a clinical decision system and does not replace genome-aware review or experimental validation.
 
-It is deliberately not a genome browser, clinical decision system, trained Rule Set 2 implementation, or genome-indexed off-target aligner.
-
-## 2. Components
+## 2. Current module architecture
 
 ```text
-┌────────────────────────────────────────────────────────────┐
-│ app.py                                                     │
-│ Streamlit state, form validation, dashboard, plots, export │
-└────────────────────────────┬───────────────────────────────┘
-                             │ pure Python calls
-┌────────────────────────────▼───────────────────────────────┐
-│ grna_designer.py                                           │
-│ clean → fetch → scan → score → validate → reference screen │
-└───────────────┬───────────────────────────────┬────────────┘
-                │                               │
-       ┌────────▼────────┐             ┌────────▼────────┐
-       │ NCBI Entrez     │             │ Ensembl REST   │
-       │ representative │             │ canonical cDNA │
-       │ transcript      │             │ where present  │
-       └─────────────────┘             └─────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ app.py                                                       │
+│ Streamlit UI, state, forms, plots, validation cards, exports │
+└───────────────┬──────────────────────┬───────────────────────┘
+                │                      │
+        ┌───────▼────────┐     ┌──────▼─────────────┐
+        │ grna_designer.py│     │ crispri.py         │
+        │ SpCas9 discovery│     │ Ensembl TSS logic │
+        │ heuristic       │     │ CRISPRi ranking   │
+        │ MIT specificity │     └────────────────────┘
+        │ local screening │
+        │ GuideScan2      │
+        └───────┬─────────┘
+                │
+        ┌───────▼───────────────┐
+        │ accession_lookup.py    │
+        │ NCBI/Ensembl accession│
+        │ resolution + provenance│
+        └───────────────────────┘
 ```
 
-The Streamlit layer never reimplements guide logic. This keeps the core importable, testable without a browser, and suitable for a later CLI or API.
+The UI never reimplements guide-scanning or scoring logic. This keeps the scientific code importable, testable and reusable outside Streamlit.
 
-## 3. Core data models
+## 3. Input architecture
+
+### Gene lookup
+
+- NCBI path resolves a gene and selects a representative RefSeq RNA record.
+- Ensembl path resolves a gene symbol and representative/canonical transcript cDNA.
+- Knockout design uses this transcript/cDNA candidate-discovery path.
+- CRISPRi does not use the cDNA path; it switches to `crispri.py` for genomic TSS-aware design.
+
+### Accession lookup
+
+`accession_lookup.py` supports:
+
+- NCBI Nucleotide / RefSeq / GenBank-style nucleotide accessions;
+- Ensembl stable IDs;
+- automatic database routing;
+- resolved accession, database, object type and sequence-length provenance;
+- hosted sequence-size safeguards.
+
+Ensembl gene stable IDs are converted to a canonical/representative transcript cDNA for knockout candidate discovery.
+
+Accession-only CRISPRi is intentionally not inferred because arbitrary accession records do not reliably define promoter/TSS biology.
+
+### Paste sequence
+
+Plain DNA, RNA and FASTA are normalized by `clean_dna_sequence()`. For CRISPRi, the user must provide an explicit 1-based TSS position and the sequence must be genomic DNA in transcriptional orientation.
+
+## 4. Core data models
 
 ### `GuideRNA`
 
-Stores the spacer, effective NGG PAM, strand, zero-based leftmost input-sequence coordinate, end coordinate, GC content, activity score, notes, application, and optional reference-screen results.
-
-`GuideRNA.to_dict()` converts internal coordinates to a one-based display start and creates a stable tabular export schema.
+Stores spacer, PAM, strand, coordinates, GC content, transparent heuristic score, optional Doench Rule Set 2 score, MIT specificity, CFD specificity, off-target details and provenance fields.
 
 ### `OffTargetHit`
 
-Stores a single PAM-compatible reference near-match:
-
-- leftmost zero-based reference coordinate;
-- strand;
-- candidate spacer and effective PAM;
-- total mismatches;
-- one-based mismatch positions in guide 5-prime to 3-prime orientation;
-- mismatch count in spacer positions 13-20;
-- risk tier.
+Stores one PAM-compatible near match including contig, coordinate, strand, mismatch positions, seed mismatches, MIT pair score, optional CFD score and risk tier.
 
 ### `OffTargetReport`
 
-Contains the retained hits, local-reference specificity score, PAM-site count, and whether one exact match was excluded as the presumed intended target.
+Stores all retained hits, MIT guide-level specificity, optional CFD specificity, PAM-site count, intended-target exclusion status and reference-contig count.
 
-## 4. Sequence normalization
+### `TSSContext`
 
-`clean_dna_sequence()` accepts plain DNA, RNA, or FASTA text.
+Stores gene, organism, species, gene/transcript IDs, assembly, chromosome, transcript strand, genomic TSS coordinate, fetched region and transcription-oriented sequence.
 
-- FASTA header lines are removed.
-- Whitespace and numeric line labels are removed.
-- `U` is converted to `T`.
-- standard ambiguous IUPAC symbols are converted to `N`.
-- unexpected punctuation raises `ValueError` instead of being silently deleted.
+### `CRISPRiGuide`
 
-Guide discovery skips any 20 nt spacer containing `N`, preserving predictable coordinates and avoiding false certainty at ambiguous bases.
+Wraps a `GuideRNA` with TSS distance, TSS-priority band, assembly, genomic coordinates, genomic strand, transcript and TSS metadata.
 
-## 5. Sequence retrieval
+### `AccessionRecord`
 
-### NCBI
+Stores query, resolved accession, source database, description, sequence, record URL and object type.
 
-The NCBI path searches Gene with `gene symbol + organism`, follows nucleotide links, prefers RefSeq RNA records, and selects a record described as mRNA/transcript or containing a CDS feature. Requests retry up to three times with a short backoff.
+## 5. SpCas9 candidate discovery
 
-### Ensembl
+The current nuclease model is deliberately explicit:
 
-The Ensembl path maps common organism names to species slugs, expands a gene-symbol lookup, chooses a canonical transcript where marked, and downloads cDNA.
+- spacer length: 20 nt;
+- PAM: NGG;
+- both strands scanned;
+- reverse-strand `CCN` sites are reported as synthesis-oriented guide + effective NGG PAM;
+- ambiguous 20 nt spacers containing `N` are skipped.
 
-### Important consequence
+## 6. On-target scoring
 
-Both lookup paths return a representative transcript/cDNA, not an annotated genomic exon model. A 20 nt candidate can cross an exon-exon junction and therefore fail to exist in genomic DNA. Final candidates must be mapped to the intended genome assembly, transcript isoform, and coding exon before ordering.
+The application separates two concepts:
 
-## 6. SpCas9 discovery
+### Transparent heuristic
 
-Forward candidates use:
+`score_breakdown()` provides an inspectable linear ranking based on GC range, selected PAM-proximal bases, PAM context, homopolymer penalties and knockout positional preference. It is not a calibrated editing probability.
 
-```text
-5′ — [20 nt spacer] [NGG PAM] — 3′
-```
+### Doench Rule Set 2
 
-Reverse candidates are recognized as `CCN` in the input sequence. The downstream 20 nt are reverse-complemented, and the `CCN` is reported as its effective `NGG` PAM so every exported spacer is in the synthesis-ready guide orientation.
+`doench_rs2_score()` uses a compatible optional GuideMaker provider when installed. The required 30 nt context is generated by `_context30()`.
 
-The scanner uses overlapping regular-expression lookaheads, so nearby PAM sites are not skipped.
+If the provider is unavailable, the field remains unavailable. The heuristic is never relabeled as Doench.
 
-## 7. Activity ranking
+## 7. Off-target scoring and specificity
 
-`score_breakdown()` starts at 50 and records every adjustment. The final value is clamped to 0-100.
+### MIT/Hsu
 
-| Feature | Adjustment |
-|---|---:|
-| GC 40-70% | +15 |
-| GC 30-40% or 70-80% | +5 |
-| GC outside those ranges | -15 |
-| G at spacer position 20 | +10 |
-| C at spacer position 20 | -8 |
-| T at spacer position 20 | -12 |
-| A/G at position 19 | +5 |
-| C at position 16 | +3 |
-| C at position 18 | +3 |
-| CGG PAM | +5 |
-| TGG PAM | -5 |
-| GGG or TTT in spacer | -8 |
-| GGGG or TTTT in spacer | additional -20 |
-| high simple reverse-complement match | -10 |
-| knockout in early 30% | +8 |
-| knockdown/CRISPRi in first 400 bp | +15 |
-| knockdown/CRISPRi after first 400 bp | -5 |
+`mit_offtarget_score()` implements the published positional mismatch-weight framework. `mit_specificity()` converts the summed pair risks into a guide-level specificity score.
 
-This is a literature-inspired linear ranking heuristic. It is not the trained Doench Rule Set 2/Azimuth model, and its values should not be interpreted as calibrated editing probabilities.
+### CFD
 
-## 8. Validation checklist
+CFD pair scoring is optional through a compatible GuideMaker provider. Guide-level CFD specificity is aggregated separately from MIT.
 
-`validate_guide()` reports:
+The application does not average MIT, CFD and on-target activity into one score because they represent different biological quantities.
 
-- spacer length is 20 nt;
-- PAM ends in GG;
-- GC lies in preferred and acceptable windows;
-- no homopolymer of five or more bases;
-- activity score is at least 40;
-- no `TTTT` polymerase III termination motif;
-- whether reference screening ran;
-- whether local-reference specificity is at least 50.
+## 8. Local-reference screening
 
-The overall pass requires the structural checks, acceptable GC, no long homopolymer/poly-T motif, score threshold, and an acceptable specificity result when available.
+`parse_reference()` preserves FASTA contigs separately. `analyze_offtargets()`:
 
-## 9. Local-reference similarity screening
+1. enumerates NGG/CCN sites on each contig;
+2. orients candidate spacers consistently;
+3. calculates substitution mismatches;
+4. excludes one exact match as the presumed intended target;
+5. retains additional exact/near matches within the selected mismatch radius;
+6. computes MIT and optional CFD values;
+7. reports contig-aware coordinates and risk tiers.
 
-`analyze_offtargets()` performs a bounded, PAM-aware screen:
+No artificial cross-contig targets are created.
 
-1. normalize the reference;
-2. enumerate forward NGG and reverse CCN sites;
-3. orient every candidate as a guide spacer plus effective NGG PAM;
-4. calculate spacer Hamming distance without indels;
-5. retain sites within the configured mismatch limit;
-6. exclude the first exact site as the presumed intended target;
-7. rank additional hits by mismatch count, seed mismatches, and coordinate.
+The hosted Streamlit interface limits local-reference input to 5,000,000 total bp.
 
-Positions 13-20 are treated as the PAM-proximal seed region. Risk tiers are intentionally simple:
+## 9. Whole-genome mode
 
-- **Critical:** an additional exact site;
-- **High:** one mismatch, or two mismatches with no more than one seed mismatch;
-- **Moderate:** up to three mismatches with no more than one seed mismatch;
-- **Low:** retained sites with more seed disruption.
+`run_guidescan2()` is an adapter for an external GuideScan2 installation and prebuilt genome index. Whole-genome mode is intentionally separate from local-reference scanning.
 
-The specificity calculation is:
+The hosted app does not bundle large genome indexes. A local/server deployment must provide:
 
-```text
-specificity = 100 / (1 + weighted_hit_risk / 20)
-```
+- `guidescan` executable;
+- matching prebuilt genome index;
+- sufficient CPU/memory/storage for the selected genome.
 
-Base weights for 0, 1, 2, and 3 mismatches are 100, 25, 8, and 2. A fully conserved seed multiplies risk by 1.5; one seed mismatch uses 1.0; two or more seed mismatches use 0.5.
+## 10. TSS-aware CRISPRi
 
-This score is designed for relative sorting inside a supplied reference. It is not CFD, MIT, cutting-frequency, or genome-wide specificity.
+Gene-based CRISPRi uses Ensembl annotation rather than cDNA position proxies.
 
-### Complexity and limits
+`fetch_ensembl_tss_context()`:
 
-Reference PAM sites are enumerated for each screened guide. For `G` guides and `P` PAM sites, runtime is approximately `O(G × P × 20)`. The dashboard limits custom targets to 50,000 bp and reference input to 250,000 bp so a free hosted instance remains responsive. Each report retains at most 250 hits.
+1. resolves the gene symbol;
+2. selects the canonical transcript when available;
+3. determines transcript strand;
+4. derives the true genomic TSS;
+5. fetches a genomic region around the TSS in transcriptional orientation.
 
-## 10. Dashboard state and caching
+`design_crispri_guides()` then:
 
-- Public-database responses are cached for one hour.
-- Pure guide-design results are cached by all input parameters.
-- Completed analysis is placed in `st.session_state` so changing result tabs does not discard the report.
-- Dark/light mode is CSS-variable based and persists in the Streamlit session.
-- Plotly charts use a matching dark or light template.
+- scans SpCas9 sites on both strands;
+- keeps guides with spacer midpoints from **−50 to +300 bp** relative to TSS;
+- prioritizes **+50 to +100 bp**;
+- reports genomic coordinates and TSS distance.
 
-No target sequence is intentionally written to server disk. Export files are generated in memory.
+Pasted-sequence CRISPRi requires an explicit TSS and does not invent genomic coordinates.
 
-## 11. Export design
+## 11. Streamlit application layer
 
-- CSV: ranked guide table.
-- Excel: ranked guides, validation, metadata, and reference hits when present.
-- FASTA: synthesis-ready 20 nt spacer records with score/PAM/strand metadata.
-- JSON: metadata plus the ranked table for downstream automation.
+`app.py` handles:
 
-The example BbsI cloning oligos are explicitly labeled vector-specific because overhangs differ among plasmid systems.
+- dark/light professional theme;
+- input-mode selection;
+- network fetch caching;
+- design intent and specificity settings;
+- result tables and plots;
+- guide-detail cards;
+- validation status cards;
+- provenance display;
+- CSV / FASTA / JSON exports;
+- session-state persistence.
 
-## 12. Error handling and deployment
+The UI distinguishes **not screened** from **failed specificity**.
 
-- Network requests use timeouts.
-- NCBI requests retry with backoff.
-- Unknown source/application values raise clear errors.
-- Unsupported nuclease/PAM options fail explicitly rather than appearing to work.
-- Upload size is limited by `.streamlit/config.toml`, while cleaned biological sequence lengths are checked in `app.py`.
-- CORS and XSRF protection remain enabled for deployment.
+## 12. Export model
 
-Production deployments should set `NCBI_EMAIL` to a monitored contact address.
+- **CSV**: ranked result table.
+- **FASTA**: synthesis-ready 20 nt spacers with metadata in headers.
+- **JSON**: structured analysis metadata and result rows.
 
-## 13. Test strategy
+CRISPRi rows include TSS/genomic provenance when available. Accession-mode runs preserve database/accession provenance in the session/report metadata.
 
-The offline suite covers:
+## 13. Network dependencies
 
-- FASTA/RNA/IUPAC normalization and invalid input;
-- GC and homopolymer helpers;
-- scoring range and application clamp;
-- forward/reverse PAM discovery and ranking;
-- guide validation;
-- intended-target exclusion;
-- exact duplicate and mismatch detection;
-- attachment of screening results to guide objects.
+- NCBI E-utilities: gene and accession retrieval.
+- Ensembl REST: gene, transcript, sequence and genomic TSS retrieval.
 
-Streamlit's application test runner is used during release checks to load the dashboard and execute a complete pasted-sequence workflow without calling an external database.
+All network calls use explicit timeouts. Production deployments should set `NCBI_EMAIL` to a monitored address.
 
-## 14. Recommended future work
+## 14. Testing strategy
 
-1. Fetch exon/CDS annotations and prevent exon-junction candidates.
-2. Integrate a validated Rule Set 2 or DeepSpCas9 implementation with model/version metadata.
-3. Add genome-build-aware Bowtie2 or Cas-OFFinder execution for real genome-wide specificity.
-4. Add CRISPRi TSS annotation and strand-aware activity windows.
-5. Add alternate nucleases, PAMs, base-editor windows, and prime-editing workflows as separate validated models.
-6. Add batch design with provenance-aware Excel output.
+The repository uses pytest plus Streamlit's application test runner.
 
-## 15. Position in the CRISPR design-tool landscape
+Coverage includes:
 
-### Positioning statement
+- sequence normalization;
+- SpCas9 guide discovery;
+- MIT scoring;
+- multi-contig local-reference behavior;
+- TSS bands and plus/minus-strand coordinate conversion;
+- pasted-sequence TSS validation;
+- accession normalization and database auto-routing;
+- Streamlit dashboard smoke tests.
 
-CRISPR Studio occupies the **open-source, lightweight, explainable pre-screening layer** of the CRISPR guide-design workflow. It sits between manual sequence/PAM inspection and heavier genome-indexed or integrated laboratory platforms. Its primary value is transparent candidate generation, rapid exploration, portable exports, and an auditable Python implementation—not a claim of superior predictive accuracy.
+GitHub Actions runs the suite on Python 3.10, 3.11 and 3.12 for pull requests and pushes to `main`.
 
-### Market and use-case comparison
+## 15. Current scientific boundaries
 
-| Category and examples | Primary strength | Relationship to CRISPR Studio |
-|---|---|---|
-| **CRISPR Studio** | Fast SpCas9/NGG shortlisting, visible score contributions, a bounded local-reference screen, local or hosted use, and reusable exports. | Best suited to education, method inspection, reproducible prototyping, and early candidate triage. |
-| **Genome-aware academic web tools:** [CRISPOR](https://crispor.org/), [CHOPCHOP](https://chopchop.cbu.uib.no/), [CRISPick](https://portals.broadinstitute.org/gppx/crispick/public), and [GuideScan2](https://guidescan.com/py/) | Assembly-aware design, established scoring models, genomic annotation, and/or indexed specificity analysis, depending on the platform. | These are complementary downstream cross-checks and direct alternatives when genome context is required before guide ordering. |
-| **Genome-scale off-target engines:** [Cas-OFFinder](https://www.rgenome.net/cas-offinder/), GuideScan2 CLI, or Bowtie2-based pipelines | Search large reference genomes and support more comprehensive specificity workflows. | These provide a stronger specificity assessment than CRISPR Studio's intentionally bounded 250,000 bp local-reference screen. |
-| **Integrated laboratory platforms:** [Benchling](https://www.benchling.com/crispr) and comparable commercial environments | Connect guide design with annotated sequences, experiment records, collaboration, and broader laboratory workflows. | They cover a wider operational workflow; CRISPR Studio remains a smaller, inspectable, portable design workbench. |
-| **Experimental validation:** amplicon sequencing, ICE/TIDE, RT-qPCR, Western blot, and assay-specific controls | Measures editing outcome, functional effect, and observed specificity in the relevant biological system. | This is the required evidence layer after every computational design workflow. |
+1. Knockout gene lookup is still representative transcript/cDNA-first rather than exon/CDS-genomic-first.
+2. Accession lookup does not automatically infer exon/CDS/promoter biology from arbitrary records.
+3. Variant-aware filtering is not built in.
+4. Chromatin accessibility is not modeled.
+5. DNA/RNA bulges are not handled by the local scanner.
+6. Whole-genome GuideScan2 requires external installation and an index.
+7. Doench Rule Set 2 and CFD remain optional providers.
+8. Protein-domain, frameshift, microhomology and repair-outcome models are not included.
 
-### Differentiators
+## 16. Positioning
 
-- **Explainability:** every activity-score contribution and validation check can be inspected rather than hidden behind a single opaque rank.
-- **Reproducibility:** the design engine is separated from the Streamlit interface and covered by offline unit tests.
-- **Accessibility:** the application can be used through a hosted interface or run locally from an MIT-licensed codebase.
-- **Flexible input:** users can start from NCBI/Ensembl gene lookup or paste DNA, RNA, or FASTA.
-- **Portable outputs:** CSV, Excel, FASTA, and JSON exports support downstream review and automation.
-- **Useful bounded specificity screen:** a plasmid, amplicon, contig, paralog panel, or other small reference can be checked without presenting that result as genome-wide analysis.
+CRISPR Studio is best understood as an **open-source, explainable front end for CRISPR guide exploration, teaching, prototyping and candidate triage**. It complements genome-aware tools such as CRISPOR, CHOPCHOP, CRISPick and GuideScan2 rather than replacing them.
 
-### Explicit non-claims
+Recommended workflow:
 
-CRISPR Studio does not provide a calibrated editing probability, whole-genome off-target completeness, clinical validation, genomic exon/TSS mapping, or a replacement for a laboratory information-management platform. Its internal scores must not be compared numerically with scores from other tools, and its candidate shortlist must not be treated as proof of efficacy or safety.
-
-### Recommended hand-off workflow
-
-1. Use CRISPR Studio to generate and explain an initial shortlist.
-2. Map each spacer to the intended genome assembly, isoform, and genomic feature; remove exon-junction or incorrectly placed candidates.
-3. Cross-check the exact spacers with at least one established genome-indexed platform and, when appropriate, a dedicated off-target engine.
-4. Select multiple independent guides using the combined genomic, efficiency, and specificity evidence.
-5. Validate the selected guides experimentally with suitable positive, negative, and non-targeting controls.
-
-The defensible product position is therefore: **an open-source and explainable front end for CRISPR guide exploration and education that complements, rather than replaces, established genome-aware design platforms and experimental validation.**
-
+1. generate and inspect candidates in CRISPR Studio;
+2. confirm genomic assembly, exon/regulatory context and intended isoform;
+3. cross-check genome-wide specificity with an indexed platform;
+4. select multiple independent guides where appropriate;
+5. validate experimentally with suitable controls.
