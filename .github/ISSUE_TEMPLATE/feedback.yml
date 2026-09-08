@@ -1,20 +1,19 @@
 name: Feedback / Bug Report
 
-description: Share an error, scientific concern, usability issue, feature request, or other feedback about CRISPR Studio — gRNA Designer.
+description: Share a bug, scientific concern, usability issue, accession problem, feature request, or documentation feedback about CRISPR Studio.
 title: "[Feedback] "
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for helping improve CRISPR Studio — gRNA Designer.
+        Thank you for helping improve CRISPR Studio.
 
-        This repository and its issue tracker are public. Please do **not** include confidential, patient-identifiable, unpublished, proprietary, or otherwise sensitive biological sequence data. The tool is intended for research and educational use and does not replace genome-wide specificity analysis or experimental validation.
+        This repository and issue tracker are public. Do **not** include confidential, patient-identifiable, unpublished, proprietary, or otherwise sensitive biological sequence data. CRISPR Studio is a research/educational candidate-shortlisting tool and does not replace genome-wide specificity analysis or experimental validation.
 
   - type: dropdown
     id: feedback_type
     attributes:
       label: Feedback type
-      description: What best describes your feedback?
       options:
         - Bug or error
         - Scientific or methodology concern
@@ -30,27 +29,38 @@ body:
     id: area
     attributes:
       label: Area of the tool
-      description: Which part of CRISPR Studio is involved?
       options:
         - Gene lookup (NCBI / Ensembl)
+        - Accession ID lookup
         - DNA / RNA / FASTA sequence input
-        - SpCas9 (NGG) guide discovery
-        - Activity scoring / ranking
-        - Validation checks
+        - CRISPRi / TSS-aware design
+        - SpCas9 guide discovery
+        - Heuristic / Doench on-target scoring
+        - MIT / CFD specificity
         - Local-reference off-target screen
+        - GuideScan2 whole-genome mode
+        - Validation / guide details
         - Charts / visualizations
-        - CSV / Excel / FASTA / JSON export
+        - CSV / FASTA / JSON export
         - Python API / local installation
         - Documentation
         - Other
     validations:
       required: true
 
+  - type: input
+    id: version
+    attributes:
+      label: CRISPR Studio version
+      placeholder: e.g. 3.2.0
+    validations:
+      required: false
+
   - type: textarea
     id: description
     attributes:
       label: What happened, or what would you like improved?
-      description: Please describe the issue or suggestion clearly. Screenshots are welcome if they contain no sensitive information.
+      description: Describe the issue or suggestion clearly. Screenshots are welcome if they contain no sensitive information.
       placeholder: Describe the problem, concern, or suggestion...
     validations:
       required: true
@@ -58,11 +68,11 @@ body:
   - type: textarea
     id: reproduce
     attributes:
-      label: Steps to reproduce (for bugs/errors)
-      description: If applicable, list the steps that reproduce the problem. Use non-sensitive example data where possible.
+      label: Steps to reproduce
+      description: For bugs, include non-sensitive steps and example identifiers/sequences where possible.
       placeholder: |
-        1. Open...
-        2. Select...
+        1. Open the app
+        2. Choose input mode...
         3. Enter a non-sensitive example...
         4. Observe...
     validations:
@@ -72,7 +82,6 @@ body:
     id: expected_actual
     attributes:
       label: Expected result vs. actual result
-      description: If applicable, tell us what you expected and what the tool produced instead.
       placeholder: |
         Expected:
         Actual:
@@ -82,16 +91,15 @@ body:
   - type: input
     id: environment
     attributes:
-      label: Environment (optional)
-      description: Browser/OS for the web app, or Python version if running locally.
-      placeholder: e.g., Chrome 151 on Windows 11; or Python 3.12
+      label: Environment
+      placeholder: e.g. Chrome on Windows 11; or Python 3.12
     validations:
       required: false
 
   - type: dropdown
     id: impact
     attributes:
-      label: How important is this issue to you?
+      label: Impact
       options:
         - Low — minor suggestion
         - Medium — affects usability or interpretation
@@ -104,7 +112,7 @@ body:
     attributes:
       label: Confirmation
       options:
-        - label: I have not included confidential, patient-identifiable, proprietary, or otherwise sensitive sequence/data in this public report.
+        - label: I have not included confidential, patient-identifiable, proprietary, unpublished, or otherwise sensitive sequence/data in this public report.
           required: true
-        - label: I understand that CRISPR Studio is a research/educational candidate-shortlisting tool and does not replace genome-wide specificity analysis or experimental validation.
+        - label: I understand that CRISPR Studio does not replace genome-wide specificity analysis or experimental validation.
           required: true
