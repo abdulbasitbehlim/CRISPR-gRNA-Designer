@@ -2,6 +2,14 @@
 
 CRISPR Studio is an open-source Python/Streamlit workbench for designing and ranking **SpCas9 (20 nt + NGG)** guide RNAs for knockout and TSS-aware CRISPRi workflows.
 
+## Live app
+
+**Launch CRISPR Studio:** https://crispr-grna-designer-v6mhgxd4o3eqbhgur3anvh.streamlit.app/
+
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://crispr-grna-designer-v6mhgxd4o3eqbhgur3anvh.streamlit.app/)
+
+> The hosted app runs from the repository's `main` branch. If Streamlit is waking from sleep, the first load may take a short moment.
+
 ## v3.2.0 highlights
 
 - Professional dark and light Streamlit dashboard with readable controls, metric cards, plots, validation cards and exports.
