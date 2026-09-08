@@ -4,6 +4,10 @@ from grna_designer import (
     _gc_content, _has_homopolymer, _doench_like_score, calculate_offtarget_score,
     mit_offtarget_score, mit_specificity, parse_reference,
 )
+from crispri import (
+    TSSContext, design_crispri_guides, design_crispri_from_sequence, tss_band,
+    _genomic_interval, _genomic_guide_strand,
+)
 
 SAMPLE_SEQUENCE=(
     'ATGGCTAGCTAGCTAGGCTAGCATCGATCGATCGGATCGATCGATCGATCGGCTAGCTAGCTAGCTAGG'
@@ -63,3 +67,41 @@ def test_local_report_has_mit_fields():
     s='GCTAGCTAGCTAGCTAGCTA'; near='GCTAGCTAGCTAACTAGCTAAGG'
     r=analyze_offtargets(s,near)
     assert r.hits and r.hits[0].mit_score>0
+
+
+def _ctx(strand=1):
+    return TSSContext(
+        gene='TEST', organism='Human', species='homo_sapiens', gene_id='G1', transcript_id='T1',
+        assembly='GRCh38', chromosome='1', transcript_strand=strand, tss_coordinate=1000,
+        region_start=900 if strand==1 else 650, region_end=1350 if strand==1 else 1100,
+        tss_offset=100, sequence='A'*451, description='test'
+    )
+
+def test_tss_bands():
+    assert tss_band(75)[0].startswith('Preferred')
+    assert tss_band(25)[0]=='High-priority'
+    assert tss_band(250)[0]=='CRISPRi window'
+
+def test_plus_strand_genomic_interval_mapping():
+    assert _genomic_interval(_ctx(1), 100, 120)==(1000,1019)
+    assert _genomic_guide_strand(_ctx(1), '+')=='+'
+
+def test_minus_strand_genomic_interval_mapping():
+    c=_ctx(-1)
+    assert _genomic_interval(c,100,120)==(981,1000)
+    assert _genomic_guide_strand(c,'+')=='-'
+
+def test_custom_crispri_requires_valid_tss_position():
+    with pytest.raises(ValueError):
+        design_crispri_from_sequence(SAMPLE_SEQUENCE,0)
+    with pytest.raises(ValueError):
+        design_crispri_from_sequence(SAMPLE_SEQUENCE,len(SAMPLE_SEQUENCE)+1)
+
+def test_crispri_filters_to_tss_window_and_annotates():
+    seq='A'*90 + 'GCTAGCTAGCTAGCTAGCTAAGG' + 'A'*340
+    c=TSSContext('TEST','Human','homo_sapiens','G1','T1','GRCh38','1',1,1000,900,1352,100,seq,'test')
+    rows=design_crispri_guides(c,max_guides=20,min_score=0)
+    assert rows
+    assert all(-50 <= x.tss_distance <= 300 for x in rows)
+    assert all(x.guide.application=='crispri' for x in rows)
+    assert all(x.transcript_id=='T1' for x in rows)
