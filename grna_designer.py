@@ -65,6 +65,10 @@ class OffTargetReport:
     total_hits:int=0; exact_matches:int=0; truncated:bool=False
     intended_target_status:str='not_declared'
     ambiguous_bases:int=0
+    screened_mismatch_radius:int=0
+    risk_counts:Dict[str,int]=field(default_factory=lambda: {'Critical':0, 'High':0, 'Moderate':0, 'Low':0})
+    max_mit_risk:float=0.0
+    max_cfd_risk:float=0.0
     @property
     def mit_specificity(self): return self.specificity_score
 
@@ -81,6 +85,10 @@ class GuideRNA:
     exact_match_count:Optional[int]=None
     intended_target:Optional[Tuple[str,int,str]]=None
     reference_ambiguous_bases:int=0
+    screened_mismatch_radius:Optional[int]=None
+    risk_counts:Dict[str,int]=field(default_factory=lambda: {'Critical':0, 'High':0, 'Moderate':0, 'Low':0})
+    max_mit_risk:Optional[float]=None
+    max_cfd_risk:Optional[float]=None
     annotation:Dict[str,Any]=field(default_factory=dict)
     @property
     def full_target(self): return self.sequence+self.pam
@@ -101,6 +109,13 @@ class GuideRNA:
         'Spacer start':self.spacer_start+1,'Spacer end':self.spacer_end,
         'Cut after base':self.cut_boundary,'Screen status':self.screen_status,
         'Exact reference matches':self.exact_match_count,
+        'Screened mismatch radius':self.screened_mismatch_radius,
+        'Critical hits':None if self.screened_mismatch_radius is None else self.risk_counts.get('Critical', 0),
+        'High-risk hits':None if self.screened_mismatch_radius is None else self.risk_counts.get('High', 0),
+        'Moderate-risk hits':None if self.screened_mismatch_radius is None else self.risk_counts.get('Moderate', 0),
+        'Low-risk hits':None if self.screened_mismatch_radius is None else self.risk_counts.get('Low', 0),
+        'Maximum per-site MIT risk':None if self.max_mit_risk is None else round(self.max_mit_risk*100, 2),
+        'Maximum per-site CFD risk':None if self.max_cfd_risk is None else round(self.max_cfd_risk*100, 2),
         'Intended locus':None if self.intended_target is None else {'contig':self.intended_target[0], 'start_0based':self.intended_target[1], 'strand':self.intended_target[2]},
         'Ambiguous reference bases':self.reference_ambiguous_bases, **self.annotation}
 
@@ -238,6 +253,8 @@ def analyze_offtargets(spacer, whole_genome, max_mismatches=3, max_hits=250, int
             raise ValueError('Invalid intended target contig, start or strand.')
     query = np.frombuffer(spacer.encode("ascii"), dtype=np.uint8)
     hits, total, exact, mit_sum, cfd_sum, cfd_complete = [], 0, 0, 0.0, 0.0, True
+    risk_counts = {'Critical':0, 'High':0, 'Moderate':0, 'Low':0}
+    max_mit_risk, max_cfd_risk = 0.0, 0.0
     excluded = False
     for offset in range(0, len(index.sites), 50_000):
         chunk = index.encoded[offset:offset + 50_000]
@@ -253,12 +270,16 @@ def analyze_offtargets(spacer, whole_genome, max_mismatches=3, max_hits=250, int
             seed = sum(p >= 13 for p in pos)
             mit = mit_offtarget_score(spacer, cand, pam)
             cfd = _optional_cfd(spacer, cand)
+            risk = _risk_label(mm, seed)
             total += 1
             mit_sum += mit
             cfd_complete = cfd_complete and cfd is not None
             cfd_sum += cfd or 0.0
+            risk_counts[risk] += 1
+            max_mit_risk = max(max_mit_risk, mit)
+            max_cfd_risk = max(max_cfd_risk, cfd or 0.0)
             if max_hits:
-                hits.append(OffTargetHit(start, strand, cand, pam, mm, pos, seed, _risk_label(mm, seed), cname, mit, cfd))
+                hits.append(OffTargetHit(start, strand, cand, pam, mm, pos, seed, risk, cname, mit, cfd))
                 if len(hits) > max_hits * 2:
                     hits.sort(key=lambda h: (h.mismatches, h.seed_mismatches, -h.mit_score, h.contig, h.start))
                     hits = hits[:max_hits]
@@ -267,9 +288,13 @@ def analyze_offtargets(spacer, whole_genome, max_mismatches=3, max_hits=250, int
     hits.sort(key=lambda h: (h.mismatches, h.seed_mismatches, -h.mit_score, h.contig, h.start))
     status = "verified_locus" if excluded else ("exact_matches_retained" if exact else "no_exact_match")
     return OffTargetReport(
-        tuple(hits[:max_hits]), round(100 / (1 + mit_sum), 2), len(index.sites), excluded,
-        round(100 / (1 + cfd_sum), 2) if cfd_complete else None,
-        len(index.contigs), total, exact, total > max_hits, status, index.ambiguous_bases,
+        hits=tuple(hits[:max_hits]), specificity_score=round(100 / (1 + mit_sum), 2),
+        pam_sites_scanned=len(index.sites), on_target_excluded=excluded,
+        cfd_specificity=round(100 / (1 + cfd_sum), 2) if cfd_complete else None,
+        reference_contigs=len(index.contigs), total_hits=total, exact_matches=exact,
+        truncated=total > max_hits, intended_target_status=status,
+        ambiguous_bases=index.ambiguous_bases, screened_mismatch_radius=max_mismatches,
+        risk_counts=risk_counts, max_mit_risk=max_mit_risk, max_cfd_risk=max_cfd_risk,
     )
 
 
@@ -290,6 +315,10 @@ def screen_guides(guides, reference, max_mismatches=3, intended_targets=None, in
         report = reports[key]
         guide.intended_target = intended
         guide.reference_ambiguous_bases = report.ambiguous_bases
+        guide.screened_mismatch_radius = report.screened_mismatch_radius
+        guide.risk_counts = dict(report.risk_counts)
+        guide.max_mit_risk = report.max_mit_risk
+        guide.max_cfd_risk = report.max_cfd_risk
         guide.specificity_score = report.mit_specificity
         guide.cfd_specificity = report.cfd_specificity
         guide.off_target_count = report.total_hits
@@ -388,6 +417,10 @@ def validate_guide(guide, genome_context=None, min_score=40):
     if genome_context is not None and not screened:
         screen_guides([guide], genome_context)
         spec, screened = guide.specificity_score, True
+    full_local_scope = screened and guide.screened_mismatch_radius is not None and guide.screened_mismatch_radius >= 3
+    no_critical_or_high_hits = screened and guide.risk_counts.get('Critical', 0) == 0 and guide.risk_counts.get('High', 0) == 0
+    aggregate_specificity_ok = screened and spec >= 50
+    locus_evidence_ok = screened and guide.screen_status == 'verified_locus' and guide.exact_match_count == 1 and guide.reference_ambiguous_bases == 0
     checks = {
         'length_ok': len(guide.sequence) == 20,
         'unambiguous': not (set(guide.sequence) - set('ACGT')),
@@ -398,7 +431,11 @@ def validate_guide(guide, genome_context=None, min_score=40):
         'score_above_threshold': guide.score >= min_score,
         'no_poly_t': 'TTTT' not in guide.sequence,
         'specificity_screened': screened,
-        'specificity_ok': screened and spec >= 50 and guide.screen_status == 'verified_locus' and guide.exact_match_count == 1 and guide.reference_ambiguous_bases == 0,
+        'screen_scope_complete': full_local_scope,
+        'no_critical_or_high_hits': no_critical_or_high_hits,
+        'aggregate_specificity_ok': aggregate_specificity_ok,
+        'locus_evidence_ok': locus_evidence_ok,
+        'specificity_ok': full_local_scope and no_critical_or_high_hits and aggregate_specificity_ok and locus_evidence_ok,
     }
     checks['sequence_checks_pass'] = all(checks[k] for k in (
         'length_ok', 'unambiguous', 'pam_ok', 'gc_in_acceptable_range',

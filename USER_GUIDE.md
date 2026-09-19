@@ -69,8 +69,15 @@ with no exact match requires investigation; it can indicate the wrong reference.
 | Cut after base | Predicted between-base cleavage position |
 
 Details are capped at 250 rows per guide by default; all hits still contribute to
-counts and scores. LOCAL CHECKS MET means the stated local checks passed. REVIEW
-also covers unscreened, unverified-locus and ambiguous-reference cases.
+counts, scores, risk categories and maximum per-site risk. The report records the
+searched mismatch radius and complete Critical, High, Moderate and Low counts.
+
+LOCAL CHECKS MET requires a local search through at least three mismatches, a
+verified unique intended locus, an unambiguous reference, MIT specificity of at
+least 50, and zero non-intended Critical or High hits. A zero-, one- or two-
+mismatch search remains REVIEW because it does not cover the standard local
+radius. A Critical or High hit also forces REVIEW even when the aggregate score
+passes. No universal CFD cutoff is imposed; per-site CFD evidence remains visible.
 
 ## CRISPRi repression
 

@@ -12,7 +12,8 @@ from io import StringIO
 
 import accession_lookup
 from grna_designer import (clean_dna_sequence, parse_reference, design_guides,
-    analyze_offtargets, ReferenceIndex, GuideRNA, validate_guide, _context30)
+    analyze_offtargets, ReferenceIndex, GuideRNA, validate_guide, _context30,
+    screen_guides)
 from knockout import context_from_genbank, design_knockout_guides
 from crispri import design_crispri_from_sequence, design_crispri_guides, TSSContext, _canonical_transcript
 from models import cfd_score
@@ -77,6 +78,9 @@ def test_all_hits_scored_even_when_details_are_capped():
     assert small.total_hits == full.total_hits == 300
     assert small.specificity_score == full.specificity_score == round(100/301, 2)
     assert small.cfd_specificity == full.cfd_specificity
+    assert small.risk_counts == full.risk_counts == {'Critical':300, 'High':0, 'Moderate':0, 'Low':0}
+    assert small.max_mit_risk == full.max_mit_risk == 1.0
+    assert small.max_cfd_risk == full.max_cfd_risk == 1.0
     assert small.truncated and len(small.hits) == 1 and not full.truncated
 
 
@@ -96,6 +100,50 @@ def test_unscreened_and_unknown_target_are_not_passed():
     assert validate_guide(g)['sequence_checks_pass']
     assert not validate_guide(g)['overall_pass']
     assert not validate_guide(g, TARGET)['overall_pass']
+
+
+def test_zero_mismatch_screen_cannot_receive_full_local_pass():
+    guide = GuideRNA(SPACER, 'AGG', '+', 0, 23, 50, 68)
+    screen_guides(
+        [guide], {'target': TARGET}, max_mismatches=0,
+        intended_targets={(0, '+'): ('target', 0, '+')},
+    )
+    checks = validate_guide(guide, min_score=35)
+    assert guide.specificity_score == 100
+    assert guide.screened_mismatch_radius == 0
+    assert checks['locus_evidence_ok'] and checks['aggregate_specificity_ok']
+    assert not checks['screen_scope_complete']
+    assert not checks['specificity_ok'] and not checks['overall_pass']
+
+
+def test_high_risk_single_mismatch_requires_review():
+    high_risk = 'A' + SPACER[1:] + 'AGG'
+    guide = GuideRNA(SPACER, 'AGG', '+', 0, 23, 50, 68)
+    screen_guides(
+        [guide], {'target': TARGET, 'off_target': high_risk}, max_mismatches=3,
+        intended_targets={(0, '+'): ('target', 0, '+')},
+    )
+    checks = validate_guide(guide, min_score=35)
+    assert guide.specificity_score == 50
+    assert guide.cfd_specificity == pytest.approx(52.63)
+    assert guide.risk_counts == {'Critical':0, 'High':1, 'Moderate':0, 'Low':0}
+    assert guide.max_mit_risk == 1.0
+    assert guide.max_cfd_risk == pytest.approx(0.9)
+    assert checks['screen_scope_complete'] and checks['aggregate_specificity_ok']
+    assert not checks['no_critical_or_high_hits']
+    assert not checks['specificity_ok'] and not checks['overall_pass']
+
+
+def test_complete_clean_local_screen_can_receive_full_local_pass():
+    guide = GuideRNA(SPACER, 'AGG', '+', 0, 23, 50, 68)
+    screen_guides(
+        [guide], {'target': TARGET}, max_mismatches=3,
+        intended_targets={(0, '+'): ('target', 0, '+')},
+    )
+    checks = validate_guide(guide, min_score=35)
+    assert guide.screened_mismatch_radius == 3
+    assert guide.risk_counts == {'Critical':0, 'High':0, 'Moderate':0, 'Low':0}
+    assert checks['specificity_ok'] and checks['overall_pass']
 
 
 def test_cfd_golden_exact_and_pam_weight():
@@ -179,6 +227,9 @@ def test_json_is_standard_and_keeps_evidence():
     data = json.loads(text)
     assert len(data['metadata']['target_sha256']) == 64
     assert 'local_hit_details' in data and data['guides'][0]['Doench RS2'] is None
+    evidence = data['local_hit_details'][0]
+    assert 'screened_mismatch_radius' in evidence and 'risk_counts' in evidence
+    assert 'maximum_per_site_mit_risk' in evidence and 'maximum_per_site_cfd_risk' in evidence
 
 
 @pytest.mark.parametrize('limit', [0, 1, 10, 100])

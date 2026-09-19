@@ -51,9 +51,13 @@ a declared intended site, whereas total_hits excludes it after verification.
 No-match, undeclared and verified-locus states are distinct. A missing declared
 site raises an error. Intended mapping and full scoring precede top-N selection.
 
-GuideRNA retains total count, details, status, intended locus and reference
-ambiguity. Validation requires sequence checks, a verified intended locus, exactly
-one reference exact match, no reference ambiguity and local MIT >=50. This
+GuideRNA retains total count, details, status, intended locus, reference
+ambiguity, searched mismatch radius, complete risk-category counts and maximum
+per-site MIT/CFD risk. These summaries are accumulated before display truncation.
+Validation requires sequence checks, a verified intended locus, exactly one
+reference exact match, no reference ambiguity, local MIT >=50, a search radius
+of at least three mismatches and zero non-intended Critical/High hits. Moderate
+and Low hits remain governed by the aggregate evidence and user review. This
 heuristic status is named LOCAL CHECKS MET, never experimental validation.
 
 ## Models and ranking

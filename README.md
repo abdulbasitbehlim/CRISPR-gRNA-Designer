@@ -17,6 +17,9 @@ knockout and human/mouse TSS-aware CRISPRi.
   input accepts one record; reference input preserves multiple contigs.
 - **Honest validation:** unscreened, ambiguous-reference and undeclared-locus
   results cannot receive the local-checks-met status.
+- **Scope-aware validation:** `LOCAL CHECKS MET` requires a search through at
+  least three mismatches and no non-intended Critical or High hit. Aggregate
+  MIT specificity alone cannot override a high-risk individual site.
 - Bundled CFD weights, corrected optional Rule Set 2 interface, reproducible JSON
   exports, bounded local screening, accession-version checks and additional tests.
 
@@ -69,6 +72,13 @@ or **5.00** after one verified intended locus is excluded. Both values remain
 unchanged when showing 0, 1, 10 or all hit rows. These are reference-limited
 prioritization scores, not probabilities or a genome-wide safety certificate.
 
+Every local report records the searched mismatch radius, complete Critical,
+High, Moderate and Low hit counts, and maximum per-site MIT and CFD risk. These
+summaries use every qualifying hit, including hits omitted from the displayed
+detail table. Searches limited to zero, one or two mismatches remain `REVIEW`.
+Any non-intended Critical or High hit also requires `REVIEW`, even when the
+aggregate MIT specificity is 50 or higher. No universal CFD pass cutoff is used.
+
 Limits: 2 Mb target, 5 Mb local reference, 500,000 indexed NGG sites, 50,000
 candidates and 100 million candidate/site comparisons. Oversized work is rejected
 with guidance instead of silently truncated screening.
@@ -101,7 +111,9 @@ CDS placement does not guarantee loss of function, frameshift, coverage of every
 isoform or experimental activity. Representative selection prefers an NP_ protein,
 then longest CDS; it is not a MANE/canonical assertion. CRISPRi does not measure
 active cellular TSS or chromatin. No variant-aware or experimental off-target
-validation is supplied. See the audit for test evidence and remaining limitations.
+validation is supplied. `LOCAL CHECKS MET` requires radius >=3 and no Critical or
+High local hit, but it still describes only the supplied reference and model scope.
+See the audit for test evidence and remaining limitations.
 
 ## Primary references
 

@@ -36,7 +36,16 @@ def export_json(metadata, guides, rows=None, genome_rows=None):
     data = {
         'metadata': metadata,
         'guides': rows if rows is not None else [g.to_dict() for g in guides],
-        'local_hit_details': [{'guide_index': i, 'total_hits': g.off_target_count, 'displayed_hits': len(g.off_target_details), 'details_truncated': (g.off_target_count or 0) > len(g.off_target_details), 'hits': g.off_target_details} for i, g in enumerate(guides, 1)],
+        'local_hit_details': [{
+            'guide_index': i, 'screened_mismatch_radius': g.screened_mismatch_radius,
+            'total_hits': g.off_target_count,
+            'risk_counts': None if g.screened_mismatch_radius is None else g.risk_counts,
+            'maximum_per_site_mit_risk': g.max_mit_risk,
+            'maximum_per_site_cfd_risk': g.max_cfd_risk,
+            'displayed_hits': len(g.off_target_details),
+            'details_truncated': (g.off_target_count or 0) > len(g.off_target_details),
+            'hits': g.off_target_details,
+        } for i, g in enumerate(guides, 1)],
         'guidescan_results': genome_rows or [],
     }
     return json.dumps(_finite(data), indent=2, allow_nan=False).encode('utf-8')

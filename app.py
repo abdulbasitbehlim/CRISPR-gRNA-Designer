@@ -221,7 +221,10 @@ def render_validation(g: GuideRNA, min_score):
         ("Heuristic threshold", "Passes the selected sequence heuristic threshold.", checks.get("score_above_threshold", False)),
         ("Poly-T check", "No TTTT motif that may affect U6 expression.", checks.get("no_poly_t", False)),
         ("Specificity screen", "A local off-target reference was screened; GuideScan2 output is reviewed separately.", checks.get("specificity_screened", False)),
-        ("Specificity quality", "Local score meets the heuristic threshold and the intended locus is verified with one exact match.", checks.get("specificity_ok", False)),
+        ("Screen scope", "Local search includes substitution sites through at least three mismatches.", checks.get("screen_scope_complete", False)),
+        ("High-risk sites", "No non-intended Critical or High local hit was found.", checks.get("no_critical_or_high_hits", False)),
+        ("Aggregate specificity", "MIT specificity is at least 50 within the stated local scope.", checks.get("aggregate_specificity_ok", False)),
+        ("Locus evidence", "Intended locus is verified, unique and screened against an unambiguous reference.", checks.get("locus_evidence_ok", False)),
     ]
     quality = [x for x in items if x[0] != "Specificity screen"]
     passed = sum(bool(v) for _, _, v in quality)
@@ -589,7 +592,18 @@ if "analysis" in st.session_state:
                 c[2].metric("All local hits", rep.total_hits)
                 c[3].metric("PAM sites", rep.pam_sites_scanned)
                 c[4].metric("Contigs", rep.reference_contigs)
-                st.caption(f"Intended target status: {rep.intended_target_status}. Exact reference matches: {rep.exact_matches}. Displayed {len(rep.hits)} of {rep.total_hits} hits; all hits contribute to scores.")
+                st.caption(
+                    f"Screened through {rep.screened_mismatch_radius} mismatch(es). Intended target status: {rep.intended_target_status}. "
+                    f"Exact reference matches: {rep.exact_matches}. Risk counts across all hits: "
+                    f"Critical {rep.risk_counts['Critical']}, High {rep.risk_counts['High']}, "
+                    f"Moderate {rep.risk_counts['Moderate']}, Low {rep.risk_counts['Low']}. "
+                    f"Maximum per-site risk: MIT {rep.max_mit_risk*100:.2f}%, CFD {rep.max_cfd_risk*100:.2f}%. "
+                    f"Displayed {len(rep.hits)} of {rep.total_hits} hits; all hits contribute to scores and risk counts."
+                )
+                if rep.screened_mismatch_radius < 3:
+                    st.warning("This local search covers fewer than three mismatches and cannot receive LOCAL CHECKS MET.")
+                if rep.risk_counts['Critical'] or rep.risk_counts['High']:
+                    st.warning("At least one non-intended Critical or High local hit requires review, regardless of the aggregate specificity score.")
                 if rep.intended_target_status != "verified_locus":
                     st.warning("Intended locus was not verified. Exact matches were retained; a high score alone cannot confirm a valid or unique genomic target.")
                 if rep.ambiguous_bases:

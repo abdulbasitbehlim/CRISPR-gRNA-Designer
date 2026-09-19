@@ -11,12 +11,15 @@
 - Ambiguous candidate sites are excluded; unscreened/unverified/ambiguous-reference results cannot meet local checks.
 - Intended-region mapping supports offsets/reverse orientation and precedes ranking.
 - Accession versions, TSS context, JSON finiteness and GuideScan2 CSV input/output are checked.
+- LOCAL CHECKS MET now requires screening through at least three mismatches.
+- Any non-intended Critical or High local hit forces REVIEW, even when aggregate MIT is at least 50.
 
 ### Added
 - Bundled CFD mismatch/PAM weights with provenance and CC0 dedication.
 - Genomic isoform selection, cut coordinates, CDS coverage and reproducible export fingerprints.
 - Bounded reusable local index, request retries and NCBI pacing.
 - Scientific regression tests, offline app tests, and saved ACTB/GAPDH genomic examples.
+- Complete risk-category counts, searched mismatch radius and maximum per-site MIT/CFD risk in reports and exports.
 
 ### Scientific boundaries
 - CRISPRi placement is a human/mouse dCas9-KRAB heuristic; RS2 is not used for repression.

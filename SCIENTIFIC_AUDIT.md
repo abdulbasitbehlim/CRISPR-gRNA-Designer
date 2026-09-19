@@ -2,7 +2,7 @@
 
 Review date: 19 September 2026. Original baseline: commit
 `8235cd88e9cf8f6b1e943441166bf5a51105fda2`. The original 24 tests passed during the
-initial review; the expanded final suite contains 79 passing tests. Passing tests
+initial review; the expanded final suite contains 82 passing tests. Passing tests
 establish the behavior covered below, not freedom from every possible software
 error or experimental validation of the guides.
 
@@ -25,27 +25,32 @@ error or experimental validation of the guides.
    Exclusion and scoring run before top-N selection, including CRISPRi ranking.
 3. Unscreened or unverified results cannot receive LOCAL CHECKS MET. That label
    requires the sequence checks, a verified locus, one exact reference match,
-   no reference ambiguity and local MIT >=50. The threshold is a heuristic.
-4. CFD weights are bundled from a pinned GuideMaker source revision, with data
+   no reference ambiguity, local MIT >=50, a search through at least three
+   mismatches and no non-intended Critical or High hit. The aggregate threshold
+   cannot override high-risk per-site evidence.
+4. Reports preserve complete Critical, High, Moderate and Low counts and maximum
+   per-site MIT/CFD risk before hit-detail truncation. No universal CFD cutoff was
+   invented; the empirical per-site evidence is exported for review.
+5. CFD weights are bundled from a pinned GuideMaker source revision, with data
    license/provenance. Exact-match and known mismatch/PAM weights are tested.
-5. The optional RS2 interface uses the provider's sequence-array call, checks a
+6. The optional RS2 interface uses the provider's sequence-array call, checks a
    correctly oriented 30-mer, reports availability/failure and keeps its scale
    separate. Missing edge context is N/A. No repression predictions use RS2.
-6. NCBI records must match requested versions. Ensembl versions and genomic
+7. NCBI records must match requested versions. Ensembl versions and genomic
    interval lengths are checked; protein translation IDs are rejected before
    normalization can misinterpret a protein as DNA.
-7. CRISPRi filters the TSS window before output truncation; reports half-base
+8. CRISPRi filters the TSS window before output truncation; reports half-base
    spacer-midpoint distances correctly; does not silently substitute an arbitrary
    transcript when a canonical transcript is absent. Gene-based use is restricted
    to the human/mouse dCas9-KRAB placement scope.
-8. A reusable, chunked local NGG index and explicit workload limits replace
+9. A reusable, chunked local NGG index and explicit workload limits replace
    unbounded repeated searches. Limits cause errors, never partial biological
    scores presented as complete.
-9. Public-data retrieval has transient-error retries and process-local NCBI
+10. Public-data retrieval has transient-error retries and process-local NCBI
    pacing. This is not a distributed quota controller for many server replicas.
-10. JSON records sequence/reference SHA-256, settings, coordinates, intended
+11. JSON records sequence/reference SHA-256, settings, coordinates, intended
     loci, provenance, full hit totals and capped evidence. NaN becomes null.
-11. GuideScan2 input now supplies a numeric coordinate placeholder, as required
+12. GuideScan2 input now supplies a numeric coordinate placeholder, as required
     by the upstream CSV reader. Missing output, schema errors and missing guide
     IDs raise errors. Multiple hit rows per guide remain valid. Native output
     remains separate because its score convention differs from local scoring.
@@ -66,7 +71,7 @@ this is annotation overlap, not experimental evidence of editing every isoform.
 
 ## Verification performed
 
-- `python -m pytest -q`: **79 passed** in the final local Python 3.12 run. No
+- `python -m pytest -q`: **82 passed** in the final local Python 3.12 run. No
   optional genome-index or activity-provider integrations were needed for this run.
 - Seven Streamlit tests cover loading, pasted design, short-input errors,
   duplicate references/stale result removal, intended-region screening,
@@ -84,6 +89,12 @@ this is annotation overlap, not experimental evidence of editing every isoform.
   genome index was run. RS2 provider was absent; wrapper/context behavior is
   checked but end-to-end model predictions were not validated in this environment.
 - Source compilation and `git diff --check` completed without errors.
+
+The scope-aware validation tests reproduce both follow-up findings. A verified
+radius-zero screen with MIT 100 remains REVIEW because the search scope is
+incomplete. A one-mismatch position-1 site produces MIT specificity 50 and CFD
+specificity about 52.63, is counted as High, and also remains REVIEW. A clean
+verified radius-three control still receives LOCAL CHECKS MET.
 
 ## Literature and source interpretation
 
