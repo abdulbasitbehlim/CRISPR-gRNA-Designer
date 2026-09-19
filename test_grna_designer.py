@@ -36,7 +36,8 @@ def test_design_guides():
 
 def test_validate():
     g=GuideRNA('ACGTACGTACGTACGTACGT','AGG','+',0,23,50,70)
-    assert validate_guide(g)['overall_pass']
+    assert validate_guide(g)['sequence_checks_pass']
+    assert not validate_guide(g)['overall_pass']
 
 def test_mit_exact_pair_is_one():
     assert mit_offtarget_score('GCTAGCTAGCTAGCTAGCTA','GCTAGCTAGCTAGCTAGCTA')==1.0
@@ -53,11 +54,11 @@ def test_multifasta_preserves_contigs():
     assert parse_reference('>chr1\nAAAA\n>chr2\nCCCC')=={'chr1':'AAAA','chr2':'CCCC'}
 
 def test_exact_intended_target_excluded():
-    s='GCTAGCTAGCTAGCTAGCTA'; r=analyze_offtargets(s,s+'AGG')
+    s='GCTAGCTAGCTAGCTAGCTA'; r=analyze_offtargets(s,s+'AGG',intended_target=('reference',0,'+'))
     assert r.on_target_excluded and not r.hits and r.specificity_score==100.0
 
 def test_additional_exact_copy_is_critical():
-    s='GCTAGCTAGCTAGCTAGCTA'; r=analyze_offtargets(s,(s+'AGG')*2)
+    s='GCTAGCTAGCTAGCTAGCTA'; r=analyze_offtargets(s,(s+'AGG')*2,intended_target=('reference',0,'+'))
     assert len(r.hits)==1 and r.hits[0].risk=='Critical' and r.specificity_score<=50.0
 
 def test_offtarget_wrapper_empty():

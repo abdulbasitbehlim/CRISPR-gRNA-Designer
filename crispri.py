@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 import requests
+from network import get
 
-from grna_designer import GuideRNA, clean_dna_sequence, design_guides
+from grna_designer import GuideRNA, clean_dna_sequence, design_guides, screen_guides
 
 ENSEMBL_REST = "https://rest.ensembl.org"
 CRISPRI_MIN = -50
@@ -65,7 +66,7 @@ class TSSContext:
 @dataclass
 class CRISPRiGuide:
     guide: GuideRNA
-    tss_distance: int
+    tss_distance: float
     tss_band: str
     tss_priority: int
     genomic_start: Optional[int]
@@ -103,8 +104,7 @@ def _canonical_transcript(gene_record: Dict[str, object]) -> Dict[str, object]:
         tid = str(transcript.get("id", "")).split(".")[0]
         if transcript.get("is_canonical") or (canonical and tid == canonical):
             return transcript
-    protein_coding = [t for t in transcripts if t.get("biotype") == "protein_coding"]
-    return protein_coding[0] if protein_coding else transcripts[0]
+    raise ValueError("No canonical transcript is annotated; provide an explicit transcript ID.")
 
 
 def fetch_ensembl_tss_context(
@@ -112,11 +112,16 @@ def fetch_ensembl_tss_context(
     organism: str,
     fetch_upstream: int = 100,
     fetch_downstream: int = 350,
+    transcript_id: str = "",
 ) -> TSSContext:
     """Fetch the canonical-transcript genomic TSS window in transcriptional orientation."""
     species = species_slug(organism)
+    if species not in {'homo_sapiens', 'mus_musculus'}:
+        raise ValueError('The built-in CRISPRi placement heuristic supports human/mouse dCas9-KRAB, not other organisms or repressors.')
+    if not 0 <= fetch_upstream <= 100_000 or not 0 <= fetch_downstream <= 100_000:
+        raise ValueError('TSS flanks must be between 0 and 100,000 bp.')
     headers = {"Accept": "application/json", "User-Agent": "CRISPR_gRNA_Designer"}
-    lookup = requests.get(
+    lookup = get(
         f"{ENSEMBL_REST}/lookup/symbol/{species}/{gene_name}?expand=1",
         headers=headers,
         timeout=30,
@@ -126,7 +131,9 @@ def fetch_ensembl_tss_context(
         raise ValueError(f"Ensembl TSS lookup failed ({lookup.status_code}): {detail}")
 
     gene = lookup.json()
-    transcript = _canonical_transcript(gene)
+    transcript = next((t for t in gene.get('Transcript', []) if t.get('id') == transcript_id), None) if transcript_id else _canonical_transcript(gene)
+    if transcript is None:
+        raise ValueError('Requested transcript is not annotated for this gene.')
     strand = int(transcript.get("strand") or gene.get("strand") or 0)
     if strand not in (-1, 1):
         raise ValueError("Ensembl did not return a valid transcript strand.")
@@ -149,7 +156,7 @@ def fetch_ensembl_tss_context(
         tss_offset = region_end - tss
 
     region = f"{chromosome}:{region_start}..{region_end}:{strand}"
-    sequence_response = requests.get(
+    sequence_response = get(
         f"{ENSEMBL_REST}/sequence/region/{species}/{region}",
         headers={"Accept": "text/plain", "User-Agent": "CRISPR_gRNA_Designer"},
         timeout=30,
@@ -170,7 +177,7 @@ def fetch_ensembl_tss_context(
     transcript_id = str(transcript.get("id", ""))
     assembly = str(gene.get("assembly_name") or transcript.get("assembly_name") or "Unknown")
     description = (
-        f"Ensembl canonical TSS | {transcript_id} | {assembly} {chromosome}:{tss} "
+        f"Ensembl annotated transcript TSS | {transcript_id} | {assembly} {chromosome}:{tss} "
         f"({ '+' if strand == 1 else '-' } strand)"
     )
     return TSSContext(
@@ -228,22 +235,27 @@ def design_crispri_guides(
     min_score: float = 30.0,
     genome_context=None,
     max_mismatches: int = 3,
+    intended_region=None,
 ) -> List[CRISPRiGuide]:
     """Design and rank SpCas9 CRISPRi guides by true TSS-relative placement."""
+    if type(max_guides) is not int or max_guides < 1:
+        raise ValueError('Maximum guides must be a positive integer.')
+    if context.species not in {'homo_sapiens', 'mus_musculus', 'custom'}:
+        raise ValueError('Built-in placement rules are restricted to human/mouse dCas9-KRAB.')
     candidates = design_guides(
         context.sequence,
-        application="knockout",
+        application="crispri",
         min_score=min_score,
-        max_guides=200,
+        max_guides=50_000,
         prefer_5prime=False,
-        genome_context=genome_context,
+        genome_context=None,
         max_mismatches=max_mismatches,
     )
 
     annotated: List[CRISPRiGuide] = []
     for guide in candidates:
         spacer_start, spacer_end = _spacer_interval(guide)
-        midpoint = int(round((spacer_start + spacer_end - 1) / 2))
+        midpoint = (spacer_start + spacer_end - 1) / 2
         distance = midpoint - context.tss_offset
         if not (CRISPRI_MIN <= distance <= CRISPRI_MAX):
             continue
@@ -251,7 +263,7 @@ def design_crispri_guides(
         band, priority = tss_band(distance)
         genomic_start, genomic_end = _genomic_interval(context, spacer_start, spacer_end)
         guide.application = "crispri"
-        guide.notes.append(f"TSS-aware: {distance:+d} bp")
+        guide.notes.append(f"TSS-aware: {distance:+g} bp")
         if priority == 3:
             guide.notes.append("Preferred CRISPRi placement band")
 
@@ -271,11 +283,13 @@ def design_crispri_guides(
             )
         )
 
+    if genome_context is not None:
+        screen_guides([item.guide for item in annotated], genome_context, max_mismatches, intended_region=intended_region, target_sequence=context.sequence)
     annotated.sort(
         key=lambda item: (
             item.tss_priority,
             item.guide.specificity_score if item.guide.specificity_score is not None else -1,
-            item.guide.doench_score if item.guide.doench_score is not None else item.guide.score,
+            item.guide.score,
             -abs(item.tss_distance - 75),
         ),
         reverse=True,
@@ -290,10 +304,11 @@ def design_crispri_from_sequence(
     min_score: float = 30.0,
     genome_context=None,
     max_mismatches: int = 3,
+    intended_region=None,
 ) -> List[CRISPRiGuide]:
     """TSS-aware CRISPRi for a user-provided transcription-oriented genomic sequence."""
     sequence = clean_dna_sequence(sequence)
-    if not 1 <= tss_position_1based <= len(sequence):
+    if type(tss_position_1based) is not int or not 1 <= tss_position_1based <= len(sequence):
         raise ValueError("TSS position must fall inside the pasted sequence.")
     context = TSSContext(
         gene="Custom target",
@@ -317,6 +332,7 @@ def design_crispri_from_sequence(
         min_score=min_score,
         genome_context=genome_context,
         max_mismatches=max_mismatches,
+        intended_region=intended_region,
     )
     for item in guides:
         item.chromosome = None

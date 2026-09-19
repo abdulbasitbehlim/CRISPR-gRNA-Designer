@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.3.0 — 2026-09-19
+
+### Fixed
+- Explicit TargetLocus exclusion replaces automatic first-exact-match removal.
+- All local hits contribute to scores/counts regardless of display cap.
+- NCBI gene knockout uses contiguous genomic DNA with CDS cut filtering.
+- Ensembl gene-symbol knockout is disabled; accession mode retrieves genomic intervals and rejects RNA/cDNA and proteins.
+- Duplicate/empty FASTA records and multiple target records raise clear errors.
+- Ambiguous candidate sites are excluded; unscreened/unverified/ambiguous-reference results cannot meet local checks.
+- Intended-region mapping supports offsets/reverse orientation and precedes ranking.
+- Accession versions, TSS context, JSON finiteness and GuideScan2 CSV input/output are checked.
+
+### Added
+- Bundled CFD mismatch/PAM weights with provenance and CC0 dedication.
+- Genomic isoform selection, cut coordinates, CDS coverage and reproducible export fingerprints.
+- Bounded reusable local index, request retries and NCBI pacing.
+- Scientific regression tests, offline app tests, and saved ACTB/GAPDH genomic examples.
+
+### Scientific boundaries
+- CRISPRi placement is a human/mouse dCas9-KRAB heuristic; RS2 is not used for repression.
+- Sequence ranking remains a heuristic; neither biological activity nor whole-genome safety is established.
+- GuideScan2 and optional RS2 installations require separate external validation.
+
 ## 3.2.0 — 2026-09-08
 
 ### Added

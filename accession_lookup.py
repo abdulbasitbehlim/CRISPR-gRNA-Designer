@@ -12,6 +12,7 @@ import re
 from typing import Optional
 
 import requests
+from network import get
 from Bio import SeqIO
 
 from grna_designer import NCBI_EMAIL, NCBI_EUTILS, NCBI_TOOL, clean_dna_sequence
@@ -39,8 +40,8 @@ def normalize_accession(value: str) -> str:
     accession = value.strip()
     if not accession:
         raise ValueError("Enter an accession or stable ID.")
-    if any(ch.isspace() for ch in accession):
-        raise ValueError("Accession IDs cannot contain spaces.")
+    if not re.fullmatch(r"[A-Za-z][A-Za-z_]*[0-9]+(?:\.[0-9]+)?", accession):
+        raise ValueError("Enter one valid nucleotide accession or Ensembl stable ID without spaces or query syntax.")
     return accession
 
 
@@ -51,7 +52,7 @@ def detect_database(accession: str) -> str:
 
 
 def _ncbi_get(path: str, params: dict) -> requests.Response:
-    response = requests.get(
+    response = get(
         f"{NCBI_EUTILS}/{path}",
         params={"tool": NCBI_TOOL, "email": NCBI_EMAIL, **params},
         timeout=35,
@@ -68,14 +69,8 @@ def fetch_ncbi_accession(accession: str, max_bp: int = MAX_ONLINE_RECORD_BP) -> 
         {"db": "nuccore", "term": f"{accession}[Accession]", "retmax": 5, "retmode": "json"},
     )
     ids = search.json().get("esearchresult", {}).get("idlist", [])
-    if not ids:
-        # Version-less RefSeq/GenBank accessions are commonly entered by users.
-        base = accession.split(".")[0]
-        search = _ncbi_get(
-            "esearch.fcgi",
-            {"db": "nuccore", "term": base, "retmax": 5, "retmode": "json"},
-        )
-        ids = search.json().get("esearchresult", {}).get("idlist", [])
+    if len(ids) > 1:
+        raise ValueError("Accession query matched multiple records; specify the exact version.")
     if not ids:
         raise ValueError(f"NCBI Nucleotide could not find '{accession}'.")
 
@@ -84,11 +79,16 @@ def fetch_ncbi_accession(accession: str, max_bp: int = MAX_ONLINE_RECORD_BP) -> 
         {"db": "nuccore", "id": ids[0], "retmode": "json"},
     ).json()
     row = summary.get("result", {}).get(str(ids[0]), {})
+    biomol = str(row.get('biomol', '')).lower()
+    if accession.upper().startswith(('NM_', 'XM_', 'NR_', 'XR_')) or 'rna' in biomol or biomol == 'cdna':
+        raise ValueError('RNA/cDNA accessions cannot define contiguous genomic knockout targets. Use NCBI Gene lookup or a genomic DNA accession.')
+    if biomol != 'genomic':
+        raise ValueError('NCBI record is not verified as genomic DNA. Use Gene lookup or supply a verified genomic region.')
     length = int(row.get("slen") or 0)
     if length and length > max_bp:
         raise ValueError(
             f"The NCBI record is {length:,} bp. The hosted accession limit is {max_bp:,} bp; "
-            "use a gene/transcript accession or paste a smaller target region."
+            "use Gene lookup or paste a smaller genomic target region."
         )
 
     fasta = _ncbi_get(
@@ -96,8 +96,8 @@ def fetch_ncbi_accession(accession: str, max_bp: int = MAX_ONLINE_RECORD_BP) -> 
         {"db": "nuccore", "id": ids[0], "rettype": "fasta", "retmode": "text"},
     ).text
     records = list(SeqIO.parse(StringIO(fasta), "fasta"))
-    if not records:
-        raise ValueError(f"NCBI returned no nucleotide sequence for '{accession}'.")
+    if len(records) != 1:
+        raise ValueError(f"NCBI must return exactly one nucleotide record for '{accession}'.")
     record = records[0]
     sequence = clean_dna_sequence(str(record.seq))
     if not sequence:
@@ -106,6 +106,9 @@ def fetch_ncbi_accession(accession: str, max_bp: int = MAX_ONLINE_RECORD_BP) -> 
         raise ValueError(f"Fetched NCBI sequence exceeds the {max_bp:,} bp hosted limit.")
 
     resolved = record.id
+    expected = accession.upper()
+    if (resolved.upper() != expected if '.' in expected else resolved.split('.')[0].upper() != expected):
+        raise ValueError(f"Requested accession {accession} does not match returned record {resolved}; no version fallback was used.")
     title = str(row.get("title") or record.description or resolved)
     return AccessionRecord(
         query=accession,
@@ -114,12 +117,12 @@ def fetch_ncbi_accession(accession: str, max_bp: int = MAX_ONLINE_RECORD_BP) -> 
         description=title,
         sequence=sequence,
         record_url=f"https://www.ncbi.nlm.nih.gov/nuccore/{resolved}",
-        object_type="nucleotide",
+        object_type="genomic DNA (coding annotation not applied)",
     )
 
 
 def _ensembl_lookup(accession: str) -> dict:
-    response = requests.get(
+    response = get(
         f"{ENSEMBL_REST}/lookup/id/{accession}?expand=1",
         headers={"Accept": "application/json", "User-Agent": NCBI_TOOL},
         timeout=35,
@@ -131,7 +134,7 @@ def _ensembl_lookup(accession: str) -> dict:
 
 def _ensembl_sequence(stable_id: str, sequence_type: Optional[str] = None) -> str:
     params = f"?type={sequence_type}" if sequence_type else ""
-    response = requests.get(
+    response = get(
         f"{ENSEMBL_REST}/sequence/id/{stable_id}{params}",
         headers={"Accept": "text/plain", "User-Agent": NCBI_TOOL},
         timeout=35,
@@ -143,37 +146,24 @@ def _ensembl_sequence(stable_id: str, sequence_type: Optional[str] = None) -> st
 
 def fetch_ensembl_accession(accession: str, max_bp: int = MAX_ONLINE_RECORD_BP) -> AccessionRecord:
     accession = normalize_accession(accession)
-    data = _ensembl_lookup(accession)
+    base, _, requested_version = accession.partition('.')
+    data = _ensembl_lookup(base)
+    if requested_version and str(data.get('version', '')) != requested_version:
+        raise ValueError('The requested Ensembl version does not match the current record.')
     object_type = str(data.get("object_type") or "").lower()
     resolved = str(data.get("id") or accession)
     description = str(data.get("description") or data.get("display_name") or resolved)
 
-    if object_type == "gene":
-        transcripts = data.get("Transcript", []) or []
-        canonical = str(data.get("canonical_transcript") or "").split(".")[0]
-        transcript = next(
-            (
-                tx for tx in transcripts
-                if tx.get("is_canonical") or str(tx.get("id", "")).split(".")[0] == canonical
-            ),
-            None,
-        )
-        if transcript is None and transcripts:
-            transcript = transcripts[0]
-        if transcript is None:
-            raise ValueError(f"Ensembl gene '{accession}' has no transcript sequence to design from.")
-        resolved = str(transcript.get("id"))
-        sequence = _ensembl_sequence(resolved, "cdna")
-        description = f"{description} | canonical/representative transcript {resolved}"
-        object_type = "gene → transcript cDNA"
-    elif object_type == "transcript":
-        sequence = _ensembl_sequence(resolved, "cdna")
-        object_type = "transcript cDNA"
-    elif object_type in {"exon", "translation"}:
-        sequence = _ensembl_sequence(resolved)
-    else:
-        sequence = _ensembl_sequence(resolved)
-        object_type = object_type or "stable ID"
+    if object_type not in {'gene', 'transcript', 'exon'}:
+        raise ValueError("Only nucleotide gene, transcript or exon IDs are accepted; protein translation IDs cannot be used as DNA.")
+    expected_length = int(data['end']) - int(data['start']) + 1
+    if expected_length < 1 or expected_length > max_bp:
+        raise ValueError(f'Genomic interval exceeds the {max_bp:,} bp limit or has invalid coordinates.')
+    sequence = _ensembl_sequence(resolved, 'genomic')
+    if len(sequence) != expected_length:
+        raise ValueError('Ensembl genomic sequence length does not match the annotated interval.')
+    description = f"{description} | genomic {data.get('assembly_name', 'unknown assembly')} {data.get('seq_region_name', '')}:{data['start']}-{data['end']} strand {data.get('strand', '')}"
+    object_type = f'{object_type} genomic DNA (coding annotation not applied)'
 
     if not sequence:
         raise ValueError("Ensembl returned an empty DNA sequence.")

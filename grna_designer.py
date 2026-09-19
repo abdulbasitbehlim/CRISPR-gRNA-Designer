@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """CRISPR Studio v3 core: SpCas9 design, MIT specificity, local multi-FASTA screening,
-optional Doench Rule Set 2/CFD providers, and GuideScan2 whole-genome integration.
+optional Doench Rule Set 2, bundled CFD weights, and GuideScan2 whole-genome integration.
 """
 from __future__ import annotations
-import csv, os, re, shutil, subprocess, tempfile, time
+import csv, os, re, shutil, subprocess, tempfile, time, math
+import numpy as np
+from sequence_io import clean_dna_sequence, parse_reference
+from models import cfd_score, rs2_score
 from dataclasses import dataclass, field
 from io import StringIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, NamedTuple
 import requests
+from network import get
 from Bio import SeqIO
 from Bio.Seq import Seq
 
@@ -20,6 +24,27 @@ PAM_PATTERN_REV=re.compile(r'(?=(CC[ATCG]))',re.I)
 DNA_ALPHABET=frozenset('ATGCN')
 IUPAC_AMBIGUOUS=re.compile(r'[RYSWKMBDHVX]')
 MIT_WEIGHTS=(0,0,0.014,0,0,0.395,0.317,0,0.389,0.079,0.445,0.508,0.613,0.851,0.732,0.828,0.615,0.804,0.685,0.583)
+
+class TargetLocus(NamedTuple):
+    """Explicit site: contig, zero-based left edge of spacer+PAM, strand."""
+    contig: str
+    start: int
+    strand: str
+
+
+def intended_loci(guides, sequence, index, region):
+    """Map a user-declared genomic region after verifying its full sequence."""
+    contig, offset, orientation = region
+    if type(offset) is not int or offset < 0 or orientation not in {'+', '-'}:
+        raise ValueError('Intended region needs a nonnegative integer offset and + or - strand.')
+    reference = index.contigs.get(contig, '')
+    expected = sequence if orientation == '+' else str(Seq(sequence).reverse_complement())
+    if not expected or reference[offset:offset + len(sequence)] != expected:
+        raise ValueError('Declared target region does not exactly match the full input sequence at this contig, position and orientation.')
+    return {(g.start, g.strand): TargetLocus(contig,
+            offset + (g.start if orientation == '+' else len(sequence) - g.end),
+            g.strand if orientation == '+' else ('-' if g.strand == '+' else '+'))
+            for g in guides}
 
 @dataclass(frozen=True)
 class OffTargetHit:
@@ -37,6 +62,9 @@ class OffTargetHit:
 class OffTargetReport:
     hits:Tuple[OffTargetHit,...]; specificity_score:float; pam_sites_scanned:int; on_target_excluded:bool
     cfd_specificity:Optional[float]=None; reference_contigs:int=1
+    total_hits:int=0; exact_matches:int=0; truncated:bool=False
+    intended_target_status:str='not_declared'
+    ambiguous_bases:int=0
     @property
     def mit_specificity(self): return self.specificity_score
 
@@ -49,8 +77,19 @@ class GuideRNA:
     doench_score:Optional[float]=None; cfd_specificity:Optional[float]=None
     scoring_method:str='Heuristic'; genome_specificity:Optional[float]=None
     genome_backend:Optional[str]=None
+    screen_status:str='not_screened'
+    exact_match_count:Optional[int]=None
+    intended_target:Optional[Tuple[str,int,str]]=None
+    reference_ambiguous_bases:int=0
+    annotation:Dict[str,Any]=field(default_factory=dict)
     @property
     def full_target(self): return self.sequence+self.pam
+    @property
+    def spacer_start(self): return self.start if self.strand=='+' else self.start+3
+    @property
+    def spacer_end(self): return self.end-3 if self.strand=='+' else self.end
+    @property
+    def cut_boundary(self): return self.start+17 if self.strand=='+' else self.start+6
     def to_dict(self):
         return {'Spacer (20 nt)':self.sequence,'PAM':self.pam,'Strand':self.strand,
         'Start':self.start+1,'End':self.end,'GC%':round(self.gc_content,1),'Heuristic':round(self.score,1),
@@ -58,35 +97,22 @@ class GuideRNA:
         'MIT specificity':None if self.specificity_score is None else round(self.specificity_score,1),
         'CFD specificity':None if self.cfd_specificity is None else round(self.cfd_specificity,1),
         'Genome specificity':self.genome_specificity,'Off-target hits':self.off_target_count,
-        'Application':self.application,'Notes':'; '.join(self.notes) if self.notes else 'No flags'}
-
-def clean_dna_sequence(raw:str)->str:
-    if not raw:return ''
-    lines=[x.strip() for x in raw.splitlines() if x.strip() and not x.lstrip().startswith('>')]
-    seq=''.join(lines).upper().replace('U','T'); seq=re.sub(r'[\s\d]','',seq); seq=IUPAC_AMBIGUOUS.sub('N',seq)
-    bad=sorted(set(seq)-DNA_ALPHABET)
-    if bad: raise ValueError('Sequence contains unsupported character(s): '+', '.join(bad))
-    return seq
-
-def parse_reference(raw:str)->Dict[str,str]:
-    """Preserve FASTA contigs; plain sequence becomes one contig."""
-    if not raw:return {}
-    if not any(line.lstrip().startswith('>') for line in raw.splitlines()): return {'reference':clean_dna_sequence(raw)}
-    records={}
-    for rec in SeqIO.parse(StringIO(raw),'fasta'):
-        name=rec.id or f'contig_{len(records)+1}'; records[name]=clean_dna_sequence(str(rec.seq))
-    if not records: raise ValueError('No readable FASTA records found.')
-    return records
+        'Application':self.application,'Notes':'; '.join(self.notes) if self.notes else 'No flags',
+        'Spacer start':self.spacer_start+1,'Spacer end':self.spacer_end,
+        'Cut after base':self.cut_boundary,'Screen status':self.screen_status,
+        'Exact reference matches':self.exact_match_count,
+        'Intended locus':None if self.intended_target is None else {'contig':self.intended_target[0], 'start_0based':self.intended_target[1], 'strand':self.intended_target[2]},
+        'Ambiguous reference bases':self.reference_ambiguous_bases, **self.annotation}
 
 def fetch_gene_ensembl(gene_name:str,species='homo_sapiens')->Tuple[str,str,str]:
     species=species.lower().strip().replace(' ','_'); server='https://rest.ensembl.org'; headers={'Accept':'application/json','User-Agent':NCBI_TOOL}
-    r=requests.get(f'{server}/lookup/symbol/{species}/{gene_name}?expand=1',headers=headers,timeout=30)
+    r=get(f'{server}/lookup/symbol/{species}/{gene_name}?expand=1',headers=headers,timeout=30)
     if not r.ok: raise ValueError(f'Ensembl lookup failed ({r.status_code}).')
     data=r.json(); txs=data.get('Transcript',[])
     if not txs: raise ValueError('No transcripts returned by Ensembl.')
     cid=str(data.get('canonical_transcript','')).split('.')[0]
     tx=next((t for t in txs if t.get('is_canonical') or t.get('id')==cid),txs[0]); tid=tx['id']
-    sr=requests.get(f'{server}/sequence/id/{tid}?type=cdna',headers={'Accept':'text/plain','User-Agent':NCBI_TOOL},timeout=30)
+    sr=get(f'{server}/sequence/id/{tid}?type=cdna',headers={'Accept':'text/plain','User-Agent':NCBI_TOOL},timeout=30)
     if not sr.ok: raise ValueError(f'Could not fetch cDNA for {tid}.')
     return tid,f"Ensembl {tid} | {data.get('display_name',gene_name)} | {data.get('description','')}".strip(' |'),clean_dna_sequence(sr.text)
 
@@ -94,13 +120,13 @@ def fetch_gene_ncbi(gene_name:str,organism:str,max_retries=3)->Tuple[str,str,str
     q=f'{gene_name}[Gene Name] AND {organism}[Organism] AND alive[prop]'; common={'tool':NCBI_TOOL,'email':NCBI_EMAIL}
     for attempt in range(max_retries):
         try:
-            s=requests.get(f'{NCBI_EUTILS}/esearch.fcgi',params={**common,'db':'gene','term':q,'retmax':5,'retmode':'json'},timeout=30); s.raise_for_status()
+            s=get(f'{NCBI_EUTILS}/esearch.fcgi',params={**common,'db':'gene','term':q,'retmax':5,'retmode':'json'},timeout=30); s.raise_for_status()
             ids=s.json().get('esearchresult',{}).get('idlist',[])
             if not ids: raise ValueError(f"No gene found for '{gene_name}' in '{organism}'.")
-            l=requests.get(f'{NCBI_EUTILS}/elink.fcgi',params={**common,'dbfrom':'gene','db':'nuccore','id':ids[0],'linkname':'gene_nuccore_refseqrna','retmode':'json'},timeout=30); l.raise_for_status()
+            l=get(f'{NCBI_EUTILS}/elink.fcgi',params={**common,'dbfrom':'gene','db':'nuccore','id':ids[0],'linkname':'gene_nuccore_refseqrna','retmode':'json'},timeout=30); l.raise_for_status()
             dbs=l.json().get('linksets',[{}])[0].get('linksetdbs',[]); nids=dbs[0].get('links',[]) if dbs else []
             if not nids: raise ValueError('Could not resolve a RefSeq RNA record.')
-            f=requests.get(f'{NCBI_EUTILS}/efetch.fcgi',params={**common,'db':'nuccore','id':','.join(nids[:20]),'rettype':'gb','retmode':'text'},timeout=30); f.raise_for_status()
+            f=get(f'{NCBI_EUTILS}/efetch.fcgi',params={**common,'db':'nuccore','id':','.join(nids[:20]),'rettype':'gb','retmode':'text'},timeout=30); f.raise_for_status()
             recs=list(SeqIO.parse(StringIO(f.text),'genbank')); selected=min(recs,key=lambda r:(0 if r.id.upper().startswith('NM_') else 1,r.id))
             return selected.id,selected.description,clean_dna_sequence(str(selected.seq))
         except Exception:
@@ -133,7 +159,7 @@ def _doench_like_score(spacer,pam): return score_breakdown(spacer,pam)['Final sc
 
 def mit_offtarget_score(spacer,offtarget,pam='NGG'):
     spacer=clean_dna_sequence(spacer); offtarget=clean_dna_sequence(offtarget)
-    if len(spacer)!=20 or len(offtarget)!=20: raise ValueError('MIT scoring requires two 20 nt sequences.')
+    if len(spacer)!=20 or len(offtarget)!=20 or (set(spacer+offtarget)-set('ACGT')): raise ValueError('MIT scoring requires two 20 nt sequences.')
     pos=[i+1 for i,(a,b) in enumerate(zip(spacer,offtarget)) if a!=b]
     if not pos:return 1.0
     m=len(pos); d=19 if m==1 else (max(pos)-min(pos))/(m-1)
@@ -143,11 +169,8 @@ def mit_offtarget_score(spacer,offtarget,pam='NGG'):
 
 def mit_specificity(scores): return round(100/(1+sum(scores)),2)
 
-def _optional_cfd(spacer,offtarget):
-    try:
-        from guidemaker.cfd_score_calculator import calc_cfd
-        return float(calc_cfd(spacer,offtarget))
-    except Exception:return None
+def _optional_cfd(spacer, offtarget):
+    return cfd_score(spacer, offtarget)
 
 def _risk_label(mm,seed):
     if mm==0:return 'Critical'
@@ -155,37 +178,132 @@ def _risk_label(mm,seed):
     if mm<=3 and seed<=1:return 'Moderate'
     return 'Low'
 
-def analyze_offtargets(spacer,whole_genome,max_mismatches=3,max_hits=250):
-    spacer=clean_dna_sequence(spacer)
-    if len(spacer)!=20: raise ValueError('Off-target screening requires a 20 nt spacer.')
-    contigs=parse_reference(whole_genome) if isinstance(whole_genome,str) else whole_genome
-    candidates=[]
-    for cname,ref in contigs.items():
-        for m in PAM_PATTERN.finditer(ref):
-            ps=m.start(); ss=ps-20
-            if ss>=0:
-                cand=ref[ss:ps]; pam=ref[ps:ps+3]
-                if 'N' not in cand:candidates.append((cname,ss,'+',cand,pam))
-        for m in PAM_PATTERN_REV.finditer(ref):
-            ps=m.start(); end=ps+23
-            if end<=len(ref):
-                cand=str(Seq(ref[ps+3:end]).reverse_complement()); pam=str(Seq(ref[ps:ps+3]).reverse_complement())
-                if 'N' not in cand:candidates.append((cname,ps,'-',cand,pam))
-    excluded=False; hits=[]
-    for cname,start,strand,cand,pam in candidates:
-        pos=tuple(i+1 for i,(a,b) in enumerate(zip(spacer,cand)) if a!=b); mm=len(pos)
-        if mm>max_mismatches:continue
-        if mm==0 and not excluded: excluded=True; continue
-        seed=sum(p>=13 for p in pos); mit=mit_offtarget_score(spacer,cand,pam); cfd=_optional_cfd(spacer,cand)
-        hits.append(OffTargetHit(start,strand,cand,pam,mm,pos,seed,_risk_label(mm,seed),cname,mit,cfd))
-    hits.sort(key=lambda h:(h.mismatches,h.seed_mismatches,-h.mit_score,h.contig,h.start)); hits=hits[:max_hits]
-    mit_spec=mit_specificity([h.mit_score for h in hits]); cfd_vals=[h.cfd_score for h in hits if h.cfd_score is not None]
-    cfd_spec=round(100/(1+sum(cfd_vals)),2) if cfd_vals else None
-    return OffTargetReport(tuple(hits),mit_spec,len(candidates),excluded,cfd_spec,len(contigs))
+def iter_pam_sites(sequence, contig="reference"):
+    """Yield real, unambiguous 23-base targets; start is left edge on input strand."""
+    for pattern, strand in ((PAM_PATTERN, "+"), (PAM_PATTERN_REV, "-")):
+        for match in pattern.finditer(sequence):
+            ps = match.start()
+            start, end = (ps - 20, ps + 3) if strand == "+" else (ps, ps + 23)
+            if start < 0 or end > len(sequence):
+                continue
+            target = sequence[start:end]
+            if set(target) - set("ACGT"):
+                continue
+            if strand == "-":
+                target = str(Seq(target).reverse_complement())
+            yield (contig, start, strand, target[:20], target[20:])
+
+
+class ReferenceIndex:
+    """Reusable, bounded local NGG site index with vectorized mismatch search."""
+    def __init__(self, reference):
+        records = parse_reference(reference) if isinstance(reference, str) else reference
+        self.contigs = {str(k): clean_dna_sequence(v) for k, v in records.items()}
+        if not self.contigs or any(not k or not v for k, v in self.contigs.items()):
+            raise ValueError("Reference must contain nonempty, named sequences.")
+        self.total_bases = sum(map(len, self.contigs.values()))
+        if self.total_bases > 5_000_000:
+            raise ValueError("Local reference exceeds 5,000,000 bp; use an indexed genome tool.")
+        self.ambiguous_bases = sum(v.count("N") for v in self.contigs.values())
+        self.sites = []
+        for k, seq in self.contigs.items():
+            for site in iter_pam_sites(seq, k):
+                if len(self.sites) >= 500_000:
+                    raise ValueError("Reference exceeds 500,000 NGG sites; use an indexed genome tool.")
+                self.sites.append(site)
+        self.encoded = np.frombuffer("".join(x[3] for x in self.sites).encode("ascii"), dtype=np.uint8).reshape(-1, 20)
+
+
+def analyze_offtargets(spacer, whole_genome, max_mismatches=3, max_hits=250, intended_target=None):
+    """Score ALL local hits; cap only displayed details, never counts or risk sums.
+
+    No intended target is guessed. To exclude one verified exact site, provide
+    (contig, zero-based target-left-edge, strand). All exact copies otherwise remain.
+    Only NGG PAMs, substitution mismatches, and the supplied reference are searched.
+    """
+    spacer = clean_dna_sequence(spacer)
+    if len(spacer) != 20 or set(spacer) - set("ACGT"):
+        raise ValueError("Off-target screening requires an unambiguous 20 nt spacer.")
+    if type(max_mismatches) is not int or not 0 <= max_mismatches <= 4:
+        raise ValueError("Mismatch limit must be an integer from 0 to 4.")
+    if type(max_hits) is not int or max_hits < 0:
+        raise ValueError("Display hit limit must be a nonnegative integer.")
+    index = whole_genome if isinstance(whole_genome, ReferenceIndex) else ReferenceIndex(whole_genome)
+    if intended_target is not None:
+        try:
+            intended_target = TargetLocus(*intended_target)
+        except (TypeError, ValueError):
+            raise ValueError('Intended target must contain contig, start and strand.') from None
+        if not isinstance(intended_target.contig, str) or type(intended_target.start) is not int or intended_target.start < 0 or intended_target.strand not in {'+', '-'}:
+            raise ValueError('Invalid intended target contig, start or strand.')
+    query = np.frombuffer(spacer.encode("ascii"), dtype=np.uint8)
+    hits, total, exact, mit_sum, cfd_sum, cfd_complete = [], 0, 0, 0.0, 0.0, True
+    excluded = False
+    for offset in range(0, len(index.sites), 50_000):
+        chunk = index.encoded[offset:offset + 50_000]
+        counts = np.count_nonzero(chunk != query, axis=1)
+        for local in np.flatnonzero(counts <= max_mismatches):
+            cname, start, strand, cand, pam = index.sites[offset + int(local)]
+            mm = int(counts[local])
+            exact += mm == 0
+            if intended_target == (cname, start, strand) and mm == 0:
+                excluded = True
+                continue
+            pos = tuple(i + 1 for i, (a, b) in enumerate(zip(spacer, cand)) if a != b)
+            seed = sum(p >= 13 for p in pos)
+            mit = mit_offtarget_score(spacer, cand, pam)
+            cfd = _optional_cfd(spacer, cand)
+            total += 1
+            mit_sum += mit
+            cfd_complete = cfd_complete and cfd is not None
+            cfd_sum += cfd or 0.0
+            if max_hits:
+                hits.append(OffTargetHit(start, strand, cand, pam, mm, pos, seed, _risk_label(mm, seed), cname, mit, cfd))
+                if len(hits) > max_hits * 2:
+                    hits.sort(key=lambda h: (h.mismatches, h.seed_mismatches, -h.mit_score, h.contig, h.start))
+                    hits = hits[:max_hits]
+    if intended_target is not None and not excluded:
+        raise ValueError("Declared intended target is not an exact NGG site in this reference. Check contig, position and strand.")
+    hits.sort(key=lambda h: (h.mismatches, h.seed_mismatches, -h.mit_score, h.contig, h.start))
+    status = "verified_locus" if excluded else ("exact_matches_retained" if exact else "no_exact_match")
+    return OffTargetReport(
+        tuple(hits[:max_hits]), round(100 / (1 + mit_sum), 2), len(index.sites), excluded,
+        round(100 / (1 + cfd_sum), 2) if cfd_complete else None,
+        len(index.contigs), total, exact, total > max_hits, status, index.ambiguous_bases,
+    )
+
+
+def screen_guides(guides, reference, max_mismatches=3, intended_targets=None, intended_region=None, target_sequence=None):
+    """Build once and reuse across guides; refuse excessive work explicitly."""
+    index = reference if isinstance(reference, ReferenceIndex) else ReferenceIndex(reference)
+    if intended_region is not None:
+        intended_targets = intended_loci(guides, target_sequence, index, intended_region)
+    unique = len({(g.sequence, (intended_targets or {}).get((g.start, g.strand))) for g in guides})
+    if unique * len(index.sites) > 100_000_000:
+        raise ValueError("Local screen exceeds the 100 million comparison budget. Use a smaller target/reference or an indexed genome tool.")
+    reports = {}
+    for guide in guides:
+        intended = (intended_targets or {}).get((guide.start, guide.strand))
+        key = (guide.sequence, intended)
+        if key not in reports:
+            reports[key] = analyze_offtargets(guide.sequence, index, max_mismatches, intended_target=intended)
+        report = reports[key]
+        guide.intended_target = intended
+        guide.reference_ambiguous_bases = report.ambiguous_bases
+        guide.specificity_score = report.mit_specificity
+        guide.cfd_specificity = report.cfd_specificity
+        guide.off_target_count = report.total_hits
+        guide.exact_match_count = report.exact_matches
+        guide.screen_status = report.intended_target_status
+        guide.off_target_details = [h.to_dict() for h in report.hits]
+        if report.ambiguous_bases:
+            guide.notes.append("Ambiguous reference bases excluded from search")
+    return guides
+
 
 def calculate_offtarget_score(spacer,pam,whole_genome=None,max_mismatches=3):
     if not whole_genome:return 0,0.0,['Genome not provided']
-    r=analyze_offtargets(spacer,whole_genome,max_mismatches); return len(r.hits),r.specificity_score,[f'{h.contig}:{h.start+1} | {h.strand} | {h.sequence}{h.pam} | {h.mismatches} mismatch(es) | MIT {h.mit_score*100:.1f}' for h in r.hits]
+    r=analyze_offtargets(spacer,whole_genome,max_mismatches); return r.total_hits,r.specificity_score,[f'{h.contig}:{h.start+1} | {h.strand} | {h.sequence}{h.pam} | {h.mismatches} mismatch(es) | MIT {h.mit_score*100:.1f}' for h in r.hits]
 
 def _context30(sequence,start,end,strand):
     if strand=='+':
@@ -195,33 +313,48 @@ def _context30(sequence,start,end,strand):
     return str(Seq(sequence[start-3:end+4]).reverse_complement())
 
 def doench_rs2_score(context30):
-    if not context30 or len(context30)!=30:return None
-    try:
-        import numpy as np
-        from guidemaker.doench_predict import predict
-        val=float(predict(np.array([context30]),num_threads=1)[0]); return round(max(0,min(1,val))*100,2)
-    except Exception:return None
+    return rs2_score(context30)
 
-def design_guides(sequence,application='knockout',pam='NGG',spacer_len=20,min_score=30,max_guides=50,prefer_5prime=True,genome_context=None,max_mismatches=3):
-    if pam.upper()!='NGG' or spacer_len!=20:raise ValueError('v3 supports SpCas9 20 nt + NGG.')
-    application=application.lower().strip(); sequence=clean_dna_sequence(sequence); guides=[]
-    def add(sp,p,strand,start,end):
-        sc=score_breakdown(sp,p,application if prefer_5prime else None,start,len(sequence))['Final score']
-        if sc<min_score:return
-        g=GuideRNA(sp,p,strand,start,end,_gc_content(sp),sc,application=application); g.doench_score=doench_rs2_score(_context30(sequence,start,end,strand))
-        g.scoring_method='Doench RS2 + heuristic' if g.doench_score is not None else 'Heuristic (Doench provider unavailable)'
-        if genome_context:
-            r=analyze_offtargets(sp,genome_context,max_mismatches); g.specificity_score=r.mit_specificity; g.cfd_specificity=r.cfd_specificity; g.off_target_count=len(r.hits); g.off_target_details=[h.to_dict() for h in r.hits]
-        if not 40<=g.gc_content<=70:g.notes.append('GC outside preferred 40-70%')
-        if _has_homopolymer(sp,4):g.notes.append('Homopolymer >=4')
-        guides.append(g)
-    for m in PAM_PATTERN.finditer(sequence):
-        ps=m.start(); ss=ps-20
-        if ss>=0:add(sequence[ss:ps],sequence[ps:ps+3],'+',ss,ps+3)
-    for m in PAM_PATTERN_REV.finditer(sequence):
-        ps=m.start(); end=ps+23
-        if end<=len(sequence):add(str(Seq(sequence[ps+3:end]).reverse_complement()),str(Seq(sequence[ps:ps+3]).reverse_complement()),'-',ps,end)
-    guides.sort(key=lambda g:(g.doench_score if g.doench_score is not None else g.score,g.specificity_score or -1,-g.start),reverse=True); return guides[:max_guides]
+
+def design_guides(sequence, application='knockout', pam='NGG', spacer_len=20,
+                  min_score=30, max_guides=50, prefer_5prime=False,
+                  genome_context=None, max_mismatches=3, intended_region=None):
+    if pam.upper() != 'NGG' or spacer_len != 20:
+        raise ValueError('Only SpCas9 20 nt + NGG design is supported.')
+    if application not in {'knockout', 'crispri'}:
+        raise ValueError('Use knockout or the explicit TSS-aware CRISPRi workflow.')
+    if not math.isfinite(float(min_score)) or not 0 <= min_score <= 100:
+        raise ValueError('Heuristic threshold must be between 0 and 100.')
+    if not isinstance(max_guides, int) or max_guides < 1:
+        raise ValueError('Maximum guides must be a positive integer.')
+    sequence = clean_dna_sequence(sequence)
+    if len(sequence) > 2_000_000:
+        raise ValueError('Target exceeds the 2,000,000 bp design limit.')
+    guides = []
+    for _, start, strand, spacer, target_pam in iter_pam_sites(sequence):
+        score = score_breakdown(spacer, target_pam, application if prefer_5prime else None, start, len(sequence))['Final score']
+        if score < min_score:
+            continue
+        guide = GuideRNA(spacer, target_pam, strand, start, start + 23, _gc_content(spacer), score, application=application)
+        # A nuclease activity model does not predict dCas9-KRAB repression.
+        if application == 'knockout':
+            guide.doench_score = doench_rs2_score(_context30(sequence, start, start + 23, strand))
+        guide.scoring_method = 'Sequence heuristic; RS2 reported separately when available'
+        if not 40 <= guide.gc_content <= 70:
+            guide.notes.append('GC outside heuristic 40-70% range')
+        if _has_homopolymer(spacer, 4):
+            guide.notes.append('Homopolymer >=4')
+        if 'TTTT' in spacer:
+            guide.notes.append('Poly-T may interfere with U6 expression')
+        guides.append(guide)
+        if len(guides) > 50_000:
+            raise ValueError("Target produces more than 50,000 candidates; select a smaller region.")
+    if genome_context is not None:
+        screen_guides(guides, genome_context, max_mismatches, intended_region=intended_region, target_sequence=sequence)
+    # Never compare different model scales or put missing-model edge guides last.
+    guides.sort(key=lambda g: (-g.score, -(g.specificity_score if g.specificity_score is not None else -1), g.start, g.strand))
+    return guides[:max_guides]
+
 
 def guidescan2_available(): return shutil.which('guidescan') is not None
 
@@ -233,19 +366,53 @@ def run_guidescan2(guides,index_path,max_mismatches=4,alt_pam='NAG'):
         inp=Path(td)/'kmers.csv'; out=Path(td)/'result.csv'
         with inp.open('w',newline='') as fh:
             w=csv.writer(fh); w.writerow(['id','sequence','pam','chromosome','position','sense'])
-            for i,g in enumerate(guides,1): w.writerow([f'g{i}',g.sequence,'NGG','','',g.strand])
+            for i,g in enumerate(guides,1): w.writerow([f'g{i}',g.sequence,'NGG','__unmapped__',1,g.strand])
         cmd=['guidescan','enumerate',str(index_path),'-f',str(inp),'-o',str(out),'--format','csv','--mode','succinct','-m',str(max_mismatches)]
         if alt_pam:cmd += ['-a',alt_pam]
         p=subprocess.run(cmd,capture_output=True,text=True,timeout=600)
         if p.returncode!=0: raise RuntimeError('GuideScan2 failed: '+p.stderr[-600:])
-        rows=list(csv.DictReader(out.open())) if out.exists() else []
+        if not out.exists():
+            raise RuntimeError('GuideScan2 returned no output file; no successful screen is recorded.')
+        with out.open() as handle:
+            reader = csv.DictReader(handle)
+            if not {'id', 'sequence', 'specificity'}.issubset(reader.fieldnames or []):
+                raise RuntimeError('GuideScan2 output has an unsupported CSV schema.')
+            rows = list(reader)
+        if {row['id'] for row in rows} != {f'g{i}' for i in range(1, len(guides) + 1)}:
+            raise RuntimeError('GuideScan2 output is incomplete or contains unexpected guide IDs.')
         return rows
 
-def validate_guide(guide,genome_context=None):
-    spec=guide.specificity_score
-    if genome_context and spec is None:spec=analyze_offtargets(guide.sequence,genome_context).specificity_score
-    c={'length_ok':len(guide.sequence)==20,'pam_ok':len(guide.pam)==3 and guide.pam.upper().endswith('GG'),'gc_in_preferred_range':40<=guide.gc_content<=70,'gc_in_acceptable_range':30<=guide.gc_content<=80,'no_extreme_homopolymer':not _has_homopolymer(guide.sequence,5),'score_above_threshold':guide.score>=40,'no_poly_t':'TTTT' not in guide.sequence,'specificity_screened':spec is not None,'specificity_ok':spec is None or spec>=50}
-    c['overall_pass']=all(c[k] for k in ['length_ok','pam_ok','gc_in_acceptable_range','no_extreme_homopolymer','score_above_threshold','no_poly_t','specificity_ok']); return c
+def validate_guide(guide, genome_context=None, min_score=40):
+    spec = guide.specificity_score
+    screened = spec is not None
+    if genome_context is not None and not screened:
+        screen_guides([guide], genome_context)
+        spec, screened = guide.specificity_score, True
+    checks = {
+        'length_ok': len(guide.sequence) == 20,
+        'unambiguous': not (set(guide.sequence) - set('ACGT')),
+        'pam_ok': bool(re.fullmatch('[ACGT]GG', guide.pam)),
+        'gc_in_preferred_range': 40 <= guide.gc_content <= 70,
+        'gc_in_acceptable_range': 30 <= guide.gc_content <= 80,
+        'no_extreme_homopolymer': not _has_homopolymer(guide.sequence, 5),
+        'score_above_threshold': guide.score >= min_score,
+        'no_poly_t': 'TTTT' not in guide.sequence,
+        'specificity_screened': screened,
+        'specificity_ok': screened and spec >= 50 and guide.screen_status == 'verified_locus' and guide.exact_match_count == 1 and guide.reference_ambiguous_bases == 0,
+    }
+    checks['sequence_checks_pass'] = all(checks[k] for k in (
+        'length_ok', 'unambiguous', 'pam_ok', 'gc_in_acceptable_range',
+        'no_extreme_homopolymer', 'score_above_threshold', 'no_poly_t'))
+    checks['overall_pass'] = checks['sequence_checks_pass'] and checks['specificity_ok']
+    return checks
+
 
 def design_from_gene(gene_name,organism,application='knockout',source='ncbi',max_guides=20,min_score=30,genome_context=None,max_mismatches=3):
-    a,d,s=fetch_sequence(gene_name,organism,source); return a,d,s,design_guides(s,application=application,max_guides=max_guides,min_score=min_score,genome_context=genome_context,max_mismatches=max_mismatches)
+    if application != 'knockout':
+        raise ValueError('Use the explicit TSS-aware CRISPRi workflow.')
+    if source.lower() != 'ncbi':
+        raise ValueError('Annotated knockout gene design requires NCBI genomic CDS lookup. Ensembl transcript discovery is disabled.')
+    from knockout import fetch_ncbi_knockout_context, design_knockout_guides
+    context = fetch_ncbi_knockout_context(gene_name, organism)
+    guides = design_knockout_guides(context, max_guides, min_score, genome_context, max_mismatches)
+    return context.accession, context.description, context.sequence, guides

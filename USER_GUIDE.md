@@ -1,164 +1,113 @@
-# CRISPR Studio v3.2.0 — user guide
-
-## Before you begin
-
-CRISPR Studio helps create and compare a shortlist of **SpCas9 20 nt + NGG** guide RNAs. It supports knockout and TSS-aware CRISPRi workflows, optional specificity analysis and online sequence retrieval.
-
-It does not prove that a guide is safe or experimentally effective. Confirm genomic context, off-target profile and experimental controls before ordering guides.
-
-## 1. Open the app
-
-Use the live Streamlit app or run locally:
-
-```bash
-streamlit run app.py
-```
-
-Use the **Dark mode** switch in the sidebar. Both themes are designed for readable inputs, dropdowns, cards and plots.
-
-## 2. Choose a target input
-
-### Gene lookup
-
-1. Select **Gene lookup**.
-2. Enter a gene symbol such as `TP53`.
-3. Enter an organism such as `Homo sapiens`.
-4. Choose Ensembl or NCBI for knockout candidate discovery.
-
-For **CRISPRi repression**, gene lookup automatically uses Ensembl genomic TSS annotation rather than the transcript 5′ end.
-
-### Accession ID
-
-1. Select **Accession ID**.
-2. Enter an accession/stable ID.
-3. Choose **Auto**, **NCBI Nucleotide**, or **Ensembl**.
-
-Examples:
-
-- `NM_000546.6`
-- `NC_000017.11`
-- `ENST00000269305`
-- `ENSG00000141510`
-
-Auto mode routes `ENS...` IDs to Ensembl and other nucleotide accessions to NCBI. The app reports the resolved accession, source database, record type and sequence length.
-
-Accession-only CRISPRi is not inferred because arbitrary sequence records may not define a biologically reliable TSS. Use **Gene lookup** for TSS-aware CRISPRi or **Paste sequence** with an explicit TSS.
-
-### Paste sequence
-
-Paste plain DNA, RNA or FASTA. The app removes FASTA headers/whitespace, converts `U` to `T`, and converts supported ambiguous IUPAC bases to `N`.
-
-For pasted-sequence CRISPRi, provide the **1-based TSS position** and use genomic DNA in 5′→3′ transcriptional orientation.
-
-## 3. Choose the design intent
-
-### Knockout
-
-Scans both strands for 20 nt spacers adjacent to NGG PAMs and applies a mild early-target preference in the transparent heuristic. Confirm final guides in the intended genomic coding exon and assembly.
-
-### CRISPRi repression
-
-For gene lookup, the app resolves the canonical Ensembl transcript and true genomic TSS. It keeps guides from **−50 to +300 bp** relative to TSS and prioritizes **+50 to +100 bp**.
-
-## 4. Adjust design settings
-
-Sidebar controls include:
-
-- **Maximum guides**
-- **Minimum heuristic score**
-- **Off-target mismatches**
-
-A practical starting point is 20 guides, heuristic threshold 35 and three mismatches.
-
-## 5. Specificity analysis
-
-### None
-
-No off-target specificity score is calculated. The dashboard clearly reports **Not screened** rather than treating this as a failed result.
-
-### Local reference
-
-Upload or paste a FASTA/reference sequence. Multi-FASTA contigs are preserved independently. The app scans NGG-compatible sites on both strands and calculates native MIT/Hsu specificity; CFD is shown when its optional provider is available.
-
-The hosted local-reference limit is 5,000,000 bp total.
-
-### Whole genome (GuideScan2)
-
-Requires an installed `guidescan` executable and matching prebuilt genome index on the machine running the app. This is not automatically available on a normal hosted Streamlit instance.
-
-## 6. Read the report
-
-### Ranked guides
-
-The table includes spacer, PAM, strand, coordinates, GC, heuristic score, optional Doench Rule Set 2, MIT specificity, CFD specificity and notes. CRISPRi rows additionally include TSS/genomic provenance.
-
-### Design landscape
-
-For knockout, the plot shows guide position versus heuristic score. For CRISPRi, the x-axis is TSS distance and the preferred +50 to +100 bp region is highlighted.
-
-### Guide details
-
-The guide detail dashboard shows:
-
-- synthesis-oriented spacer + PAM;
-- heuristic, Doench RS2, GC, MIT and CFD cards;
-- TSS/genomic metadata for CRISPRi;
-- readable validation cards instead of raw JSON;
-- heuristic contribution table;
-- example BbsI cloning oligos.
-
-### Off-target screen
-
-When specificity analysis was run, inspect additional exact and near matches. Additional perfect copies are critical. Local-reference results apply only to the sequence supplied.
-
-### Export
-
-- **CSV** — ranked table
-- **FASTA** — synthesis-ready spacers
-- **JSON** — structured metadata and guide results
-
-## 7. Understand the scores
-
-- **Heuristic**: transparent sequence-ranking score; not a calibrated editing probability.
-- **Doench Rule Set 2**: on-target activity model when the optional compatible provider is installed.
-- **MIT/Hsu**: native off-target specificity score.
-- **CFD**: optional off-target cleavage-risk score.
-
-Do not average these metrics mentally into one number; they answer different questions.
-
-## 8. Recommended shortlisting workflow
-
-1. Confirm the spacer exists in the intended genome assembly.
-2. Confirm exon/regulatory context and intended transcript.
-3. Reject exon-junction-only knockout candidates.
-4. Review GC, poly-T and other validation flags.
-5. Run genome-wide specificity analysis for final candidates.
-6. Check relevant population/strain variants when appropriate.
-7. Select multiple independent guides where practical.
-8. Validate experimentally with suitable positive, negative and non-targeting controls.
-
-## 9. Common problems
-
-### Gene not found
-
-Check the official symbol and organism name, switch database, use an accession ID or paste a verified sequence.
-
-### Accession not found
-
-Verify the accession/version and choose the correct database explicitly. Public APIs may temporarily throttle or fail.
-
-### No guides pass
-
-Lower the heuristic threshold, use a longer target or verify that the sequence contains NGG PAMs and few ambiguous bases.
-
-### Doench / CFD shows N/A
-
-Those models are optional providers. The app does not substitute the internal heuristic and call it Doench.
-
-### MIT shows Not screened
-
-Choose Local reference or Whole genome mode. A guide that was not screened is not the same as a guide that failed specificity.
-
-## 10. Research-use reminder
-
-CRISPR Studio is a research and educational candidate-shortlisting tool. It does not replace genome-aware design review, biological judgment or experimental validation.
+# CRISPR Studio v3.3.0 user guide
+
+## What the software helps you do
+
+CRISPR Studio makes a shortlist of possible SpCas9 guides. A spacer is the 20-base
+sequence directing Cas9; an NGG PAM is a three-base motif beside the genomic
+site. The software does not demonstrate that a guide edits cells successfully.
+
+## Genomic knockout design
+
+1. Choose Gene lookup, enter an exact gene symbol and scientific organism name.
+2. Select NCBI and Knockout. For a quick human example, use ACTB and Homo sapiens.
+3. Optionally enter a RefSeq protein or compatible transcript accession for the
+   intended isoform. Leaving it blank uses the selection rule shown in the result.
+4. Choose the minimum heuristic and number of returned guides.
+5. Add a local reference if available, or leave specificity as not screened.
+6. Run the analysis. Check the genomic accession, selected protein, CDS position,
+   spacer sequence and predicted cut coordinates.
+7. Review specificity evidence, biological context and experimental controls.
+
+The software searches actual genomic DNA with introns present. A candidate is
+kept only when its predicted cut lies inside a coding segment of the selected
+isoform. A guide's complete 23-base site can legitimately extend beyond that
+coding segment when it exists contiguously in genomic DNA.
+
+Ensembl gene-symbol knockout is disabled. Use NCBI for this annotated workflow.
+
+## Other input modes
+
+NCBI accession mode accepts records verified as genomic DNA. NM_/XM_/NR_/XR_
+transcripts and other RNA/cDNA records are rejected. Ensembl gene/transcript/exon
+IDs retrieve the genomic interval, never the spliced transcript. Protein IDs are
+rejected. The 2 Mb limit means whole human chromosome accessions are too large.
+Use gene lookup or a smaller genomic region.
+
+Paste sequence accepts one genomic DNA record. Multiple target records are an
+error, not joined sequences. The app cannot prove the provenance of pasted DNA;
+do not paste a spliced cDNA for genomic editing. Coding annotation is not applied
+in accession/paste modes, so a candidate can lie in an intron or noncoding region.
+
+## Declaring your intended target in a local reference
+
+Upload/paste the correct reference, with a unique ID for every FASTA record.
+If the target input appears inside reference contig chr1 beginning at base 101,
+enter chr1, 101 and +. For a reverse-complement input region, enter its leftmost
+reference coordinate and -. The whole input region must match at that location.
+The program then maps each candidate to its own intended locus before ranking.
+
+If the reference consists of exactly your target under >reference, enter
+reference, 1 and +. This is useful for testing or a construct, but it only screens
+that supplied reference. It does not examine other genome sequences.
+
+Leave the intended-record field blank when you do not know the location. Every
+exact copy is then retained, including the possible intended copy. A high score
+with no exact match requires investigation; it can indicate the wrong reference.
+
+## Reading scores and coordinates
+
+| Field | Meaning |
+|---|---|
+| Heuristic | Transparent sequence preference; not a validated success percentage |
+| Doench RS2 | Optional nuclease-activity prediction; N/A if provider/context unavailable |
+| MIT specificity | Reference-limited aggregation of MIT pair scores |
+| CFD specificity | Reference-limited aggregation of published CFD pair scores |
+| Off-target hits | All qualifying hits after an explicitly verified intended exclusion |
+| Exact reference matches | All exact NGG matches, including a verified intended match |
+| Start and End | 1-based complete spacer-plus-PAM interval on input DNA |
+| Spacer start and end | 1-based spacer interval without PAM |
+| Cut after base | Predicted between-base cleavage position |
+
+Details are capped at 250 rows per guide by default; all hits still contribute to
+counts and scores. LOCAL CHECKS MET means the stated local checks passed. REVIEW
+also covers unscreened, unverified-locus and ambiguous-reference cases.
+
+## CRISPRi repression
+
+Gene lookup uses Ensembl for human/mouse dCas9-KRAB design, regardless of the
+sequence-database radio selection. Confirm the canonical transcript or provide
+an explicit Ensembl transcript ID; the tool will not silently choose an arbitrary
+transcript if no canonical transcript is supplied. The annotation TSS may differ
+from the active TSS in your cell type.
+
+The app keeps spacer midpoints -50 to +300 bases relative to TSS and prioritizes
++50 to +100. These are placement heuristics, not universal biological rules.
+Custom input must be genomic DNA in transcriptional orientation with a 1-based
+TSS. The app does not apply these rules to gene-based plant/bacterial designs.
+It does not use the RS2 nuclease model to predict repression.
+
+## Exports and external analysis
+
+Download CSV for the guide table, FASTA for spacer sequences and JSON for settings,
+reference fingerprints, provenance and local evidence. Keep the original reference
+and exact genome assembly alongside the JSON; a hash identifies a sequence but
+cannot reconstruct it. FASTA is not a complete expression construct.
+
+GuideScan2 requires an installed executable and a compatible genome index on the
+server. Its raw per-hit table uses native scoring and is not folded into local
+validation or ranking. This release tests the adapter interface with simulated
+output; users must validate their actual external installation/index.
+
+## Troubleshooting
+
+- Duplicate FASTA identifier: give every contig a unique name; do not delete a
+  relevant contig merely to silence the error.
+- Declared target mismatch: check assembly, contig naming, region coordinate and
+  orientation. Do not exclude a different exact match to force a better score.
+- No complete CDS: confirm gene symbol, organism and selected coding isoform.
+- RNA/cDNA accession rejected: use NCBI Gene lookup or genomic input.
+- Rule Set 2 N/A: optional provider missing, invalid 30-mer context or provider
+  failure. The heuristic remains clearly separate.
+- Limits exceeded: reduce the analysis region or use an indexed genome tool.
+- Network failure: retry later or use verified saved genomic input. Provider
+  outages must not be interpreted as a biological absence of candidate guides.

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""CRISPR Studio v3.2 professional Streamlit dashboard."""
+"""CRISPR Studio v3.3 professional Streamlit dashboard."""
 from __future__ import annotations
 
 import json
 import os
 import re
+from html import escape
 from statistics import median
 from typing import List
 
@@ -13,6 +14,9 @@ import plotly.express as px
 import streamlit as st
 from Bio.Seq import Seq
 
+from knockout import fetch_ncbi_knockout_context, design_knockout_guides
+from models import rs2_status
+from reporting import make_metadata, export_json
 from accession_lookup import AccessionRecord, fetch_accession
 from crispri import (
     CRISPRiGuide,
@@ -35,9 +39,11 @@ from grna_designer import (
     run_guidescan2,
     score_breakdown,
     validate_guide,
+    screen_guides,
+    ReferenceIndex,
 )
 
-APP_VERSION = "3.2.0"
+APP_VERSION = "3.3.0"
 MAX_CUSTOM_BP = 100_000
 MAX_LOCAL_REFERENCE_BP = 5_000_000
 
@@ -49,7 +55,7 @@ st.set_page_config(
     menu_items={
         "Get Help": "https://github.com/abdulbasitbehlim/CRISPR-gRNA-Designer",
         "Report a bug": "https://github.com/abdulbasitbehlim/CRISPR-gRNA-Designer/issues",
-        "About": "CRISPR Studio v3.2 — SpCas9 design, accession lookup and TSS-aware CRISPRi.",
+        "About": "CRISPR Studio v3.3 — SpCas9 design, accession lookup and TSS-aware CRISPRi.",
     },
 )
 
@@ -149,7 +155,8 @@ with st.sidebar.expander("Models & backends"):
         "- **SpCas9:** 20 nt + NGG\n"
         "- **Online records:** NCBI Nucleotide + Ensembl\n"
         "- **MIT/Hsu:** native\n"
-        "- **Doench RS2 / CFD:** optional provider\n"
+        "- **CFD:** bundled published weights\n"
+        "- **Doench RS2:** optional GuideMaker provider\n"
         "- **Whole genome:** GuideScan2\n"
         "- **CRISPRi:** Ensembl canonical TSS"
     )
@@ -162,8 +169,13 @@ def cached_fetch(gene, organism, source):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def cached_tss(gene, organism):
-    return fetch_ensembl_tss_context(gene, organism)
+def cached_tss(gene, organism, transcript_id=""):
+    return fetch_ensembl_tss_context(gene, organism, transcript_id=transcript_id)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_knockout(gene, organism, isoform=""):
+    return fetch_ncbi_knockout_context(gene, organism, protein_id=isoform)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -198,23 +210,23 @@ def style_plot(fig, height=420):
     return fig
 
 
-def render_validation(g: GuideRNA):
-    checks = validate_guide(g)
+def render_validation(g: GuideRNA, min_score):
+    checks = validate_guide(g, min_score=min_score)
     items = [
         ("Spacer length", "Exactly 20 nt for SpCas9.", checks.get("length_ok", False)),
         ("PAM compatibility", "Target uses a valid NGG PAM.", checks.get("pam_ok", False)),
         ("Preferred GC", "Preferred guide GC is 40–70%.", checks.get("gc_in_preferred_range", False)),
         ("Acceptable GC", "Broad acceptable GC is 30–80%.", checks.get("gc_in_acceptable_range", False)),
         ("Homopolymer check", "Avoids extreme same-base runs.", checks.get("no_extreme_homopolymer", False)),
-        ("Activity threshold", "Passes the selected activity threshold.", checks.get("score_above_threshold", False)),
+        ("Heuristic threshold", "Passes the selected sequence heuristic threshold.", checks.get("score_above_threshold", False)),
         ("Poly-T check", "No TTTT motif that may affect U6 expression.", checks.get("no_poly_t", False)),
-        ("Specificity screen", "An off-target reference/index was actually screened.", checks.get("specificity_screened", False)),
-        ("Specificity quality", "Specificity is acceptable when a screen is available.", checks.get("specificity_ok", False)),
+        ("Specificity screen", "A local off-target reference was screened; GuideScan2 output is reviewed separately.", checks.get("specificity_screened", False)),
+        ("Specificity quality", "Local score meets the heuristic threshold and the intended locus is verified with one exact match.", checks.get("specificity_ok", False)),
     ]
     quality = [x for x in items if x[0] != "Specificity screen"]
     passed = sum(bool(v) for _, _, v in quality)
     overall = checks.get("overall_pass", False)
-    status = "PASS" if overall else "REVIEW"
+    status = "LOCAL CHECKS MET" if overall else "REVIEW"
     status_class = "status-good" if overall else "status-review"
     st.markdown(
         f'<div class="summary-card"><b>Guide quality: <span class="{status_class}">{status}</span></b><br>'
@@ -250,7 +262,7 @@ input_mode = st.radio(
     label_visibility="collapsed",
 )
 
-with st.form("design_form", border=True):
+with st.container(border=True):
     left, right = st.columns([1.25, 1])
     with left:
         gene_name = "Custom target"
@@ -262,15 +274,16 @@ with st.form("design_form", border=True):
         if input_mode == "Gene lookup":
             gene_name = st.text_input("Gene symbol", value="TP53")
             organism = st.text_input("Organism", value="Homo sapiens")
-            source = st.radio("Sequence database", ["Ensembl", "NCBI"], horizontal=True).lower()
-            st.caption("Gene lookup retrieves a representative transcript for knockout. CRISPRi uses the canonical Ensembl TSS and genomic sequence window.")
+            source = st.radio("Sequence database", ["NCBI", "Ensembl"], horizontal=True).lower()
+            isoform = st.text_input("Isoform accession optional", help="For NCBI knockout: a versioned NP or NM accession from this gene. For CRISPRi: an Ensembl transcript ID. Leave blank for the stated representative selection.")
+            st.caption("NCBI knockout uses genomic coding annotations. For annotated knockout design select NCBI; Ensembl gene lookup is reserved for CRISPRi. CRISPRi uses Ensembl human/mouse dCas9-KRAB placement rules.")
         elif input_mode == "Accession ID":
             accession_query = st.text_input(
                 "Accession / stable ID",
-                placeholder="Examples: NM_000546.6, NC_000017.11, ENST00000269305, ENSG00000141510",
+                placeholder="Examples: ENSG00000141510, ENST00000269305, a small genomic accession",
             )
             accession_database = st.selectbox("Online database", ["Auto", "NCBI Nucleotide", "Ensembl"])
-            st.caption("Auto routes ENS* stable IDs to Ensembl and other nucleotide accessions to NCBI Nucleotide. Online records are fetched live when you run the analysis.")
+            st.caption("Auto routes ENS* stable IDs to Ensembl and other nucleotide accessions to NCBI Nucleotide. Only genomic DNA is designed: RNA/cDNA accessions are rejected and Ensembl IDs retrieve unspliced genomic intervals. Large chromosomes exceed the input limit.")
             gene_name = accession_query.strip() or "Accession target"
             source = "accession"
         else:
@@ -280,6 +293,8 @@ with st.form("design_form", border=True):
         intent = st.radio("Design intent", ["Knockout", "CRISPRi repression"])
         application = "knockout" if intent == "Knockout" else "crispri"
         custom_tss = None
+        if application == "crispri":
+            st.caption("Mammalian dCas9-KRAB placement heuristic only. It does not model chromatin, the active cellular TSS, bacterial CRISPRi or plant repressors.")
         if input_mode == "Paste sequence" and application == "crispri":
             custom_tss = st.number_input(
                 "TSS position in pasted sequence (1-based)",
@@ -295,17 +310,25 @@ with st.form("design_form", border=True):
         ref_upload = None
         ref_text = ""
         genome_index = ""
+        target_reference_id = ""
+        target_reference_start = 1
+        target_reference_strand = "+"
         if screen_mode == "Local reference":
             ref_upload = st.file_uploader("Reference FASTA / text", type=["fa", "fasta", "fna", "txt"])
             ref_text = st.text_area("Or paste reference sequence", height=80)
+            target_reference_id = st.text_input("Intended target record ID optional", help="Exact FASTA contig ID containing the intended target region. Leave blank to retain all exact hits.")
+            target_reference_start = st.number_input("Target region start in reference (1-based left edge)", min_value=1, value=1, step=1)
+            target_reference_strand = st.selectbox("Target region orientation in reference", ["+", "-"])
+            st.caption("Local screening checks NGG sites in the supplied linear reference only. No alternative PAMs, variants, bulges or circular junctions are searched.")
         elif screen_mode.startswith("Whole genome"):
             genome_index = st.text_input("GuideScan2 index path", value=os.getenv("GUIDESCAN_INDEX", ""))
             st.caption("GuideScan2 detected on this host: " + ("yes" if guidescan2_available() else "no"))
 
-    submitted = st.form_submit_button("Design and analyze guides", type="primary", use_container_width=True)
+    submitted = st.button("Design and analyze guides", type="primary", use_container_width=True)
 
 # ----------------------------- Analysis ----------------------------------
 if submitted:
+    st.session_state.pop("analysis", None)
     try:
         reference = None
         if screen_mode == "Local reference":
@@ -317,9 +340,11 @@ if submitted:
             if total > MAX_LOCAL_REFERENCE_BP:
                 raise ValueError(f"Local reference exceeds {MAX_LOCAL_REFERENCE_BP:,} bp hosted limit.")
 
+        intended_region = (target_reference_id.strip(), int(target_reference_start) - 1, target_reference_strand) if reference and target_reference_id.strip() else None
         crispri_rows: List[CRISPRiGuide] = []
         tss_context = None
         online_record = None
+        knockout_context = None
 
         if input_mode == "Accession ID":
             if not accession_query.strip():
@@ -340,12 +365,13 @@ if submitted:
                 min_score=float(min_score),
                 genome_context=reference,
                 max_mismatches=max_mismatches,
+                intended_region=intended_region,
             )
         elif application == "crispri":
             if input_mode == "Gene lookup":
                 if not gene_name.strip() or not organism.strip():
                     raise ValueError("Enter both gene symbol and organism.")
-                tss_context = cached_tss(gene_name.strip(), organism.strip())
+                tss_context = cached_tss(gene_name.strip(), organism.strip(), isoform.strip())
                 sequence = tss_context.sequence
                 accession = tss_context.transcript_id
                 description = tss_context.description
@@ -354,7 +380,8 @@ if submitted:
                     max_guides=max_guides,
                     min_score=float(min_score),
                     genome_context=reference,
-                    max_mismatches=max_mismatches,
+                        max_mismatches=max_mismatches,
+                    intended_region=intended_region,
                 )
             else:
                 sequence = clean_dna_sequence(custom_sequence)
@@ -370,30 +397,32 @@ if submitted:
                     max_guides=max_guides,
                     min_score=float(min_score),
                     genome_context=reference,
-                    max_mismatches=max_mismatches,
+                        max_mismatches=max_mismatches,
+                    intended_region=intended_region,
                 )
             guides = [x.guide for x in crispri_rows]
         else:
-            if input_mode == "Paste sequence":
-                sequence = clean_dna_sequence(custom_sequence)
-                if len(sequence) < 50:
-                    raise ValueError("The target sequence must contain at least 50 bp.")
-                if len(sequence) > MAX_CUSTOM_BP:
-                    raise ValueError(f"Target exceeds {MAX_CUSTOM_BP:,} bp limit.")
-                accession = "CUSTOM"
-                description = "User-provided target sequence"
+            if input_mode == "Gene lookup" and source == "ncbi":
+                knockout_context = cached_knockout(gene_name.strip(), organism.strip(), isoform.strip())
+                sequence = knockout_context.sequence
+                accession = knockout_context.accession
+                description = knockout_context.description
+                guides = design_knockout_guides(knockout_context, max_guides=max_guides, min_score=float(min_score), genome_context=reference, max_mismatches=max_mismatches, intended_region=intended_region)
             else:
-                if not gene_name.strip() or not organism.strip():
-                    raise ValueError("Enter both gene symbol and organism.")
-                accession, description, sequence = cached_fetch(gene_name.strip(), organism.strip(), source)
-            guides = design_guides(
-                sequence,
-                application="knockout",
-                max_guides=max_guides,
-                min_score=float(min_score),
-                genome_context=reference,
-                max_mismatches=max_mismatches,
-            )
+                if input_mode == "Paste sequence":
+                    sequence = clean_dna_sequence(custom_sequence)
+                    if len(sequence) < 50:
+                        raise ValueError("The target sequence must contain at least 50 bp.")
+                    if len(sequence) > MAX_CUSTOM_BP:
+                        raise ValueError(f"Target exceeds {MAX_CUSTOM_BP:,} bp limit.")
+                    accession = "CUSTOM"
+                    description = "User-provided target sequence; coding annotation not supplied"
+                else:
+                    if not gene_name.strip() or not organism.strip():
+                        raise ValueError("Enter both gene symbol and organism.")
+                    raise ValueError("Annotated knockout gene design requires NCBI genomic CDS lookup. Select NCBI; Ensembl transcript discovery is disabled.")
+                guides = design_guides(sequence, application="knockout", max_guides=max_guides,
+                    min_score=float(min_score), genome_context=reference, max_mismatches=max_mismatches, intended_region=intended_region)
 
         genome_rows = (
             run_guidescan2(guides, genome_index, max_mismatches=max_mismatches)
@@ -405,6 +434,9 @@ if submitted:
             crispri_rows=crispri_rows,
             tss_context=tss_context,
             online_record=online_record,
+            knockout_context=knockout_context,
+            min_score=min_score,
+            metadata=make_metadata(sequence, reference, version=APP_VERSION, target=gene_name, organism=organism, source=source, application=application, accession=accession, mismatch_limit=max_mismatches, min_score=min_score, max_guides=max_guides, screen_mode=screen_mode, intended_target_record=target_reference_id, intended_region=intended_region, model_status=rs2_status(), genomic_context=({"reference_accession": knockout_context.accession, "region_start": knockout_context.region_start, "selected_protein": knockout_context.selected_protein, "selection_rule": knockout_context.selection_rule} if knockout_context else None), tss_context=({k: v for k, v in vars(tss_context).items() if k != "sequence"} if tss_context else ({"custom_tss_1based": custom_tss} if application == "crispri" else None))),
             sequence=sequence,
             reference=reference,
             genome_rows=genome_rows,
@@ -416,6 +448,7 @@ if submitted:
             description=description,
             screen_mode=screen_mode,
             max_mismatches=max_mismatches,
+            intended_region=intended_region,
         )
         st.success(f"Analysis complete: {len(guides)} guide candidates passed the filter.")
     except Exception as exc:
@@ -437,18 +470,23 @@ if "analysis" in st.session_state:
         rec: AccessionRecord = r["online_record"]
         st.markdown(
             f'<div class="source-card"><b>Verified online record</b><br>'
-            f'<small>{rec.database} · {rec.object_type} · resolved accession {rec.accession} · {rec.length:,} bp</small></div>',
+            f'<small>{escape(rec.database)} · {escape(rec.object_type)} · resolved accession {escape(rec.accession)} · {rec.length:,} bp</small></div>',
             unsafe_allow_html=True,
         )
     if r["application"] == "crispri" and r.get("tss_context"):
         c = r["tss_context"]
         st.success(
             f"TSS-aware CRISPRi: {c.assembly} {c.chromosome}:{c.tss_coordinate:,} ({c.strand_label}) · "
-            f"canonical transcript {c.transcript_id} · accepted window {CRISPRI_MIN:+d} to {CRISPRI_MAX:+d} bp; "
+            f"annotated transcript {c.transcript_id} · accepted window {CRISPRI_MIN:+d} to {CRISPRI_MAX:+d} bp; "
             f"preferred {CRISPRI_OPTIMAL_MIN:+d} to {CRISPRI_OPTIMAL_MAX:+d} bp."
         )
-    elif r["source"] not in {"manual", "accession"} and r["application"] == "knockout":
-        st.warning("Gene lookup uses representative transcript/cDNA for candidate discovery. Confirm genomic exon/assembly coordinates before experimental use.")
+    elif r.get("knockout_context"):
+        context = r["knockout_context"]
+        st.success(f"Genomic CDS filter applied: {context.accession}, selected protein {context.selected_protein}.")
+        st.caption(context.selection_rule)
+    elif r["application"] == "knockout":
+        st.warning("Genomic sequence exploration: no CDS filter was applied. Confirm the coding or regulatory context; pasted DNA must be contiguous genomic sequence.")
+    st.caption("Scores prioritize candidates; they are not probabilities of editing or experimental validation. " + r["metadata"]["model_status"])
 
     if not guides:
         st.warning("No candidate guides passed the current filters. Reduce the heuristic threshold or inspect whether the target region contains NGG PAM sites.")
@@ -492,7 +530,7 @@ if "analysis" in st.session_state:
                     color="Strand",
                     size="GC%",
                     hover_data=["Rank", "Spacer (20 nt)", "PAM"],
-                    title="Candidate activity across the target",
+                    title="Sequence heuristic across the target",
                 )
             st.plotly_chart(style_plot(fig, 460), use_container_width=True)
             hist = px.histogram(df, x="GC%", nbins=12, title="GC-content distribution")
@@ -512,7 +550,7 @@ if "analysis" in st.session_state:
             if crispri_rows:
                 cg = crispri_rows[idx]
                 chips = [
-                    ("TSS distance", f"{cg.tss_distance:+d} bp"),
+                    ("TSS distance", f"{cg.tss_distance:+g} bp"),
                     ("Placement", cg.tss_band),
                     ("Assembly", cg.assembly or "Custom"),
                     ("Genomic locus", f"{cg.chromosome}:{cg.genomic_start}-{cg.genomic_end}" if cg.genomic_start else "Custom sequence"),
@@ -523,12 +561,12 @@ if "analysis" in st.session_state:
                 )
 
             st.markdown("#### Validation & quality")
-            render_validation(g)
+            render_validation(g, r["min_score"])
             st.markdown("#### Heuristic score breakdown")
             breakdown = score_breakdown(
                 g.sequence,
                 g.pam,
-                application=None if g.application == "crispri" else g.application,
+                application=None,
                 start=g.start,
                 sequence_length=len(sequence),
             )
@@ -539,28 +577,27 @@ if "analysis" in st.session_state:
                 '<span>This transparent heuristic is reported separately from Doench Rule Set 2.</span></div>',
                 unsafe_allow_html=True,
             )
-            with st.expander("Example BbsI cloning oligos"):
-                rev = str(Seq(g.sequence).reverse_complement())
-                st.markdown(
-                    f'<div class="oligo"><b>Forward</b><br>CACCG{g.sequence}</div>'
-                    f'<div class="oligo"><b>Reverse</b><br>AAAC{rev}C</div>',
-                    unsafe_allow_html=True,
-                )
+            st.caption("Exported sequences are 20 nt DNA spacers. Vector overhangs, an added U6 G and sgRNA scaffold depend on your expression system; these are not complete cloning oligos.")
 
         with tabs[3]:
             if reference:
                 oi = st.selectbox("Inspect local off-targets", range(len(guides)), key="otguide", format_func=lambda i: f"#{i+1} · {guides[i].sequence}")
-                rep = analyze_offtargets(guides[oi].sequence, reference, max_mismatches=r["max_mismatches"])
+                rep = analyze_offtargets(guides[oi].sequence, reference, max_mismatches=r["max_mismatches"], intended_target=guides[oi].intended_target)
                 c = st.columns(5)
                 c[0].metric("MIT specificity", f"{rep.mit_specificity:.1f}")
                 c[1].metric("CFD specificity", f"{rep.cfd_specificity:.1f}" if rep.cfd_specificity is not None else "N/A")
-                c[2].metric("Near-matches", len(rep.hits))
+                c[2].metric("All local hits", rep.total_hits)
                 c[3].metric("PAM sites", rep.pam_sites_scanned)
                 c[4].metric("Contigs", rep.reference_contigs)
+                st.caption(f"Intended target status: {rep.intended_target_status}. Exact reference matches: {rep.exact_matches}. Displayed {len(rep.hits)} of {rep.total_hits} hits; all hits contribute to scores.")
+                if rep.intended_target_status != "verified_locus":
+                    st.warning("Intended locus was not verified. Exact matches were retained; a high score alone cannot confirm a valid or unique genomic target.")
+                if rep.ambiguous_bases:
+                    st.warning(f"Reference contains {rep.ambiguous_bases:,} ambiguous bases. Sites overlapping them were skipped.")
                 if rep.hits:
                     st.dataframe(pd.DataFrame([h.to_dict() for h in rep.hits]), use_container_width=True, hide_index=True)
                 else:
-                    st.success("No additional PAM-compatible near-matches within the selected mismatch radius.")
+                    st.info("No reported local hits within this NGG-only search scope. This does not establish genome-wide specificity.")
             elif r["genome_rows"]:
                 st.markdown("#### GuideScan2 whole-genome results")
                 st.dataframe(pd.DataFrame(r["genome_rows"]), use_container_width=True, hide_index=True)
@@ -571,31 +608,19 @@ if "analysis" in st.session_state:
             base = safe_name(r["gene"])
             csvb = df.to_csv(index=False).encode()
             fasta = "\n".join(f">{base}_g{i}|pam={g.pam}|strand={g.strand}\n{g.sequence}" for i, g in enumerate(guides, 1)).encode()
-            js = json.dumps(
-                {
-                    "metadata": {
-                        "target": r["gene"],
-                        "organism": r["organism"],
-                        "application": r["application"],
-                        "accession": r["accession"],
-                        "version": APP_VERSION,
-                    },
-                    "guides": df.where(pd.notna(df), None).to_dict("records"),
-                },
-                indent=2,
-            ).encode()
+            js = export_json(r["metadata"], guides, rows=json.loads(df.to_json(orient="records")), genome_rows=r["genome_rows"])
             d = st.columns(3)
-            d[0].download_button("Download CSV", csvb, file_name=f"{base}_v320_guides.csv", use_container_width=True)
-            d[1].download_button("Download FASTA", fasta, file_name=f"{base}_v320_spacers.fasta", use_container_width=True)
-            d[2].download_button("Download JSON", js, file_name=f"{base}_v320_analysis.json", use_container_width=True)
+            d[0].download_button("Download CSV", csvb, file_name=f"{base}_v330_guides.csv", use_container_width=True)
+            d[1].download_button("Download FASTA", fasta, file_name=f"{base}_v330_spacers.fasta", use_container_width=True)
+            d[2].download_button("Download JSON", js, file_name=f"{base}_v330_analysis.json", use_container_width=True)
 
         with tabs[5]:
             cards = st.columns(4)
             content = [
                 ("Input provenance", "Gene symbols, NCBI/Ensembl accessions, or user DNA with source metadata."),
                 ("On-target", "Doench Rule Set 2 when the optional provider is installed; transparent heuristic stays separate."),
-                ("Specificity", "Native MIT/Hsu; optional CFD; local multi-contig or GuideScan2 whole-genome search."),
-                ("CRISPRi", "Gene lookup uses canonical Ensembl TSS, strand-aware genomic DNA and a −50..+300 bp window."),
+                ("Specificity", "Native MIT/Hsu and bundled CFD; local multi-contig or GuideScan2 whole-genome search. Local scores cover NGG sites only."),
+                ("CRISPRi", "Human/mouse dCas9-KRAB heuristic around an annotated Ensembl TSS. Active TSS and chromatin are not measured."),
             ]
             for col, (title, text) in zip(cards, content):
                 col.markdown(f'<div class="method"><b>{title}</b><p>{text}</p></div>', unsafe_allow_html=True)
@@ -603,11 +628,11 @@ if "analysis" in st.session_state:
             st.markdown(
                 "- **Accession lookup** resolves nucleotide targets from NCBI Nucleotide or Ensembl and records provenance.\n"
                 "- **CRISPRi is TSS-aware for gene lookup.** Accession-only CRISPRi is intentionally not inferred because many nucleotide records do not define a reliable TSS.\n"
-                "- Knockout gene lookup still begins from representative cDNA; shortlisted guides should be mapped to the intended genomic coding exon/assembly.\n"
+                "- NCBI knockout gene lookup scans genomic DNA and filters cuts to annotated CDS. Accession/pasted genomic sequence modes do not apply CDS annotations; Ensembl gene-symbol knockout is disabled.\n"
                 "- Whole-genome specificity requires GuideScan2 plus a matching prebuilt genome index.\n"
                 "- Variant-aware filtering, chromatin state and DNA/RNA bulges require external genome-aware resources.\n"
                 "- Computational scores prioritize candidates; they do not replace experimental validation."
             )
 
 st.divider()
-st.caption("CRISPR Studio v3.2 · research/educational use · MIT License")
+st.caption("CRISPR Studio v3.3 · research/educational use · MIT License")
