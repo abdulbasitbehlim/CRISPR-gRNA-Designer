@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the archived release once a DOI is minted."
+title: "CRISPR Studio — gRNA Designer"
+type: software
+authors:
+  - family-names: "Behlim"
+    given-names: "Abdul Basit"
+version: 3.3.0
+date-released: 2026-09-19
+license: MIT
+repository-code: "https://github.com/abdulbasitbehlim/CRISPR-gRNA-Designer"
+keywords:
+  - CRISPR
+  - gRNA
+  - SpCas9
+  - CRISPRi
+  - bioinformatics
+  - computational-biology
+# doi: add only after Zenodo mints it
