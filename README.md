@@ -115,6 +115,10 @@ validation is supplied. `LOCAL CHECKS MET` requires radius >=3 and no Critical o
 High local hit, but it still describes only the supplied reference and model scope.
 See the audit for test evidence and remaining limitations.
 
+## Citation
+
+Software citation metadata is provided in [CITATION.cff](CITATION.cff). Zenodo-ready release metadata is provided in [.zenodo.json](.zenodo.json); add a DOI only after Zenodo actually archives a release and mints one.
+
 ## Primary references
 
 - Hsu et al. (2013). DNA targeting specificity of RNA-guided Cas9 nucleases.
