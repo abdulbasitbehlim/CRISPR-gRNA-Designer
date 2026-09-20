@@ -5,6 +5,8 @@ knockout and human/mouse TSS-aware CRISPRi.
 
 [Launch CRISPR Studio](https://crispr-grna-designer-v6mhgxd4o3eqbhgur3anvh.streamlit.app/)
 
+**Keywords:** `bioinformatics` · `crispr` · `grna` · `spcas9` · `crispri` · `streamlit` · `computational-biology` · `genome-editing`
+
 ## What changed
 
 - **Explicit intended locus:** no first-exact-match removal. Exclusion requires a
