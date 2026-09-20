@@ -1,0 +1,20 @@
+{
+  "title": "CRISPR Studio — gRNA Designer",
+  "upload_type": "software",
+  "version": "3.3.0",
+  "creators": [
+    {
+      "name": "Behlim, Abdul Basit"
+    }
+  ],
+  "description": "Research-use SpCas9 guide discovery, prioritization and local specificity workbench. Release metadata prepared for Zenodo; DOI intentionally absent until a release is archived.",
+  "license": "MIT",
+  "keywords": [
+    "CRISPR",
+    "gRNA",
+    "SpCas9",
+    "CRISPRi",
+    "bioinformatics",
+    "research software"
+  ]
+}
