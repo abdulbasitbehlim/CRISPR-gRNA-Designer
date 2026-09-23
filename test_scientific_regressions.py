@@ -1,3 +1,50 @@
+# ============================================================================
+# SCIENTIFIC REGRESSION TESTS
+# BEGINNER-FRIENDLY CODE GUIDE
+# ============================================================================
+#
+# PURPOSE: Protects important scientific behaviours with regression tests so future edits do not change validated results unexpectedly.
+#
+# HOW TO READ THIS FILE:
+# 1. Each test describes one behaviour the scientific code must continue to satisfy.
+# 2. Test inputs are prepared first, then the function is called, then assertions
+#    check that the output still matches the expected scientific behaviour.
+# 3. The assertions and scientific expectations are intentionally unchanged.
+#
+# MAIN TOP-LEVEL TEST FUNCTIONS:
+# - function: test_malformed_or_multiple_target_records_rejected
+# - function: test_ambiguous_guides_and_pams_never_emitted
+# - function: test_reverse_spacer_pam_and_cut_coordinates
+# - function: test_no_synthetic_contig_junction_target
+# - function: test_duplicate_reference_ids_rejected
+# - function: test_first_exact_match_is_not_silently_excluded
+# - function: test_explicit_target_exclusion_and_retained_duplicate
+# - function: test_declared_but_missing_locus_rejected
+# - function: test_all_hits_scored_even_when_details_are_capped
+# - function: test_ambiguous_reference_and_missing_exact_target_reported
+# - function: test_invalid_mismatch_radius_rejected
+# - function: test_unscreened_and_unknown_target_are_not_passed
+# - function: test_zero_mismatch_screen_cannot_receive_full_local_pass
+# - function: test_high_risk_single_mismatch_requires_review
+# - function: test_complete_clean_local_screen_can_receive_full_local_pass
+# - function: test_cfd_golden_exact_and_pam_weight
+# - function: test_context30_orientation_and_edge_behavior
+# - function: genomic_fixture
+# - function: test_genomic_cds_filter_and_absolute_coordinates
+# - function: test_crispri_restricts_repressor_scope
+# - function: test_crispri_filters_before_global_candidate_truncation
+# - function: test_missing_canonical_transcript_does_not_guess
+# - function: test_translation_id_rejected_before_protein_is_normalized
+# - function: test_accession_version_mismatch_never_falls_back
+# - function: test_json_is_standard_and_keeps_evidence
+# - function: test_user_twenty_copy_example
+# - function: test_user_spliced_exon_junction_is_not_genomic_candidate
+# - function: test_declared_region_inside_contig_maps_both_guide_strands
+# - function: test_wrong_declared_region_rejected_before_result
+# - function: test_ambiguous_reference_never_gets_local_checks_met
+# - plus 8 additional tests/helpers
+# ============================================================================
+
 """Regression tests for scientific failures reproduced against v3.2.0."""
 from dataclasses import replace
 import json
