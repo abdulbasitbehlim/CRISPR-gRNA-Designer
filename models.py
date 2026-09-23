@@ -1,3 +1,26 @@
+# ============================================================================
+# MODELS
+# BEGINNER-FRIENDLY CODE GUIDE
+# ============================================================================
+#
+# PURPOSE: Defines the small data models used to pass structured CRISPR results between parts of the program.
+#
+# HOW TO READ THIS FILE:
+# 1. Start with the imports and constants.
+# 2. Read each function separately; every function performs one part of the workflow.
+# 3. Follow the function calls from the application/workflow rather than trying to
+#    understand the entire file at once.
+# 4. Scientific equations, thresholds, validation rules and public function names
+#    are intentionally kept unchanged while the code is being humanized.
+#
+# MAIN TOP-LEVEL PARTS IN THIS FILE:
+# - function: cfd_weights
+# - function: cfd_score
+# - function: rs2_provider
+# - function: rs2_status
+# - function: rs2_score
+# ============================================================================
+
 """CFD weights and optional Rule Set 2 interface with explicit provider status."""
 from functools import lru_cache
 import json
@@ -11,6 +34,10 @@ def cfd_weights():
     return json.loads((Path(__file__).parent / 'data' / 'cfd_data.json').read_text())
 
 
+
+# ----------------------------------------------------------------------------
+# FUNCTION / CLASS SECTION: cfd_score
+# ----------------------------------------------------------------------------
 def cfd_score(spacer, off_target, pam='NGG'):
     """Doench CFD pair score; spacer and off-target are in guide orientation."""
     if len(spacer) != 20 or len(off_target) != 20 or set(spacer + off_target) - set('ACGT'):
@@ -38,10 +65,18 @@ def rs2_provider():
         return None
 
 
+
+# ----------------------------------------------------------------------------
+# FUNCTION / CLASS SECTION: rs2_status
+# ----------------------------------------------------------------------------
 def rs2_status():
     return 'GuideMaker Rule Set 2 available' if rs2_provider() else 'Rule Set 2 unavailable; sequence heuristic only'
 
 
+
+# ----------------------------------------------------------------------------
+# FUNCTION / CLASS SECTION: rs2_score
+# ----------------------------------------------------------------------------
 def rs2_score(context):
     if not context or len(context) != 30 or set(context) - set('ACGT') or context[25:27] != 'GG':
         return None
