@@ -1,139 +1,298 @@
 # CRISPR Studio — gRNA Designer v3.3.0
 
-A Python/Streamlit workbench for shortlisting **SpCas9 20 nt + NGG** guides for
-knockout and human/mouse TSS-aware CRISPRi.
+CRISPR Studio is a Python and Streamlit application for helping researchers shortlist **SpCas9 guide RNAs**.
 
-[Launch CRISPR Studio](https://crispr-grna-designer-v6mhgxd4o3eqbhgur3anvh.streamlit.app/)
+The program looks for **20-nucleotide guide sequences next to an NGG PAM** and supports both:
 
-**Keywords:** `bioinformatics` · `crispr` · `grna` · `spcas9` · `crispri` · `streamlit` · `computational-biology` · `genome-editing`
+- CRISPR knockout guide design;
+- human/mouse TSS-aware CRISPRi guide design.
 
-## What changed
+The tool is meant to support research and learning. It does **not** guarantee that a guide will work experimentally, and its local specificity screen is not a substitute for complete genome-wide validation.
 
-- **Explicit intended locus:** no first-exact-match removal. Exclusion requires a
-  declared contig, position and strand, verified against the reference.
-- **Complete local scoring:** every qualifying hit contributes to MIT/CFD and
-  counts. Display limits cap rows only.
-- **Genomic knockout discovery:** NCBI gene lookup retrieves contiguous genomic
-  DNA and keeps cuts inside an annotated CDS. It never joins exons.
-- **Strict FASTA:** duplicate/empty identifiers or records are errors. Target
-  input accepts one record; reference input preserves multiple contigs.
-- **Honest validation:** unscreened, ambiguous-reference and undeclared-locus
-  results cannot receive the local-checks-met status.
-- **Scope-aware validation:** `LOCAL CHECKS MET` requires a search through at
-  least three mismatches and no non-intended Critical or High hit. Aggregate
-  MIT specificity alone cannot override a high-risk individual site.
-- Bundled CFD weights, corrected optional Rule Set 2 interface, reproducible JSON
-  exports, bounded local screening, accession-version checks and additional tests.
+**Live app:** https://crispr-grna-designer-v6mhgxd4o3eqbhgur3anvh.streamlit.app/
 
-See [the scientific audit](SCIENTIFIC_AUDIT.md), [user guide](USER_GUIDE.md),
-[architecture](ARCHITECTURE.md) and [changelog](CHANGELOG.md).
+---
+
+## What this tool does
+
+In simple terms, the program follows this workflow:
+
+1. receive a gene, accession, or DNA sequence;
+2. find possible 20 nt guides next to an NGG PAM;
+3. check basic sequence quality;
+4. rank the candidates;
+5. optionally compare them with a supplied reference sequence for local near-matches;
+6. export the selected results for review.
+
+The software also keeps sequence provenance and validation information so that the result can be traced back to the exact biological input used.
+
+---
+
+## Main workflows
+
+### 1. Knockout design
+
+For NCBI gene lookup, the program retrieves genomic sequence and keeps candidate cut sites inside annotated coding sequence.
+
+It does not create an artificial sequence by joining exons together.
+
+### 2. CRISPRi design
+
+For human and mouse CRISPRi, the program uses a genomic window around a transcription start site and applies a dCas9-KRAB-oriented placement heuristic.
+
+This is a design aid, not a direct measurement of transcriptional repression.
+
+### 3. Manual sequence design
+
+A user can also paste one contiguous genomic DNA sequence and search it directly.
+
+In this case, the user is responsible for knowing where that sequence came from and whether it represents the intended biological locus.
+
+---
+
+## Important behaviour
+
+The software uses several safeguards so that a simple-looking result is not mistaken for stronger evidence than it really provides.
+
+- The intended genomic site is excluded from off-target counting only when the user gives an explicit record, coordinate, and strand that can be verified.
+- Duplicate or empty FASTA identifiers are rejected.
+- Local specificity counts use all qualifying hits, even when the screen only displays part of the hit table.
+- A result with incomplete screening remains marked for review.
+- A high-risk non-intended local hit cannot be hidden by a good aggregate specificity score.
+- Large inputs are rejected instead of being silently truncated.
+
+---
+
+## Input options
+
+| Input type | What the program does |
+|---|---|
+| Gene lookup + NCBI + knockout | Uses genomic CDS-aware guide discovery. |
+| Gene lookup + CRISPRi | Uses a genomic TSS window for human/mouse CRISPRi. |
+| NCBI accession | Accepts genomic DNA accessions. RNA/cDNA accessions are rejected. |
+| Ensembl accession | Retrieves contiguous genomic sequence for supported IDs. |
+| Paste sequence | Searches one user-supplied contiguous genomic DNA region. |
+
+Accession-only CRISPRi is rejected because a nucleotide accession by itself does not define the intended transcription start site.
+
+---
+
+## Local specificity screen
+
+The optional local screen checks the supplied **linear reference sequence** on both strands.
+
+It currently supports:
+
+- NGG PAMs;
+- 0–4 substitution mismatches;
+- MIT/Hsu-style specificity calculations;
+- bundled CFD scoring;
+- explicit intended-site exclusion.
+
+It does **not** model:
+
+- bulges;
+- alternate PAMs;
+- sample variants;
+- chromatin state;
+- circular sequence junctions;
+- a complete genome unless the user supplies that genome as the reference.
+
+The local screen is therefore best understood as a **reference-limited prioritization step**.
+
+---
+
+## Understanding PASS and REVIEW
+
+The program does not use PASS to mean “experimentally proven”.
+
+A local result can receive **LOCAL CHECKS MET** only when the configured local checks are sufficiently complete and no Critical or High non-intended hit is found.
+
+A result remains **REVIEW** when, for example:
+
+- the mismatch search is too shallow;
+- the intended locus has not been declared correctly;
+- the reference is ambiguous;
+- a Critical or High local hit exists.
+
+---
+
+## Scores
+
+The software uses several scores for different purposes.
+
+### Sequence heuristic
+
+This helps rank knockout candidates using sequence-based properties.
+
+It is not a trained editing-success probability.
+
+### MIT specificity
+
+This summarizes near-match risk in the supplied reference.
+
+It should not be interpreted as a probability of safety.
+
+### CFD
+
+CFD is also used for local near-match assessment.
+
+The bundled weight data and their provenance are documented in the repository.
+
+### Optional Rule Set 2
+
+GuideMaker Rule Set 2 can be reported separately when the required sequence context is available.
+
+It is not used to predict CRISPRi repression.
+
+---
 
 ## Installation
 
-```bash
+Clone the repository:
+
+\`\`\`bash
 git clone https://github.com/abdulbasitbehlim/CRISPR-gRNA-Designer.git
 cd CRISPR-gRNA-Designer
+\`\`\`
+
+Create a virtual environment:
+
+\`\`\`bash
 python -m venv .venv
-# Linux/macOS: source .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
+\`\`\`
+
+Activate it.
+
+### Windows PowerShell
+
+\`\`\`powershell
+.venv\Scripts\Activate.ps1
+\`\`\`
+
+### Linux/macOS
+
+\`\`\`bash
+source .venv/bin/activate
+\`\`\`
+
+Install the required packages:
+
+\`\`\`bash
 python -m pip install -r requirements.txt
+\`\`\`
+
+Run the app:
+
+\`\`\`bash
 python -m streamlit run app.py
-```
+\`\`\`
 
-Tests: `python -m pip install -r requirements-dev.txt`, then `python -m pytest -q`.
-The CI matrix covers Python 3.10, 3.11 and 3.12.
+---
 
-## Choosing a workflow
+## Running the tests
 
-| Input | Behavior and boundary |
-|---|---|
-| Gene lookup + NCBI + knockout | Genomic CDS-aware design. Choose a RefSeq protein/transcript isoform or use the stated representative selection. |
-| Gene lookup + CRISPRi | Ensembl genomic TSS window; canonical or explicitly selected transcript. Human/mouse dCas9-KRAB placement heuristic. |
-| Ensembl gene-symbol knockout | Disabled until an annotated genomic implementation is available. Select NCBI. |
-| NCBI accession | Genomic DNA only. RNA/cDNA accessions are rejected. Large chromosome records exceed the 2 Mb input cap. |
-| Ensembl accession | Gene, transcript or exon IDs retrieve contiguous **genomic** sequence, including introns where applicable. No CDS filter in this mode. |
-| Paste sequence | Supply one contiguous genomic DNA region. Its genomic provenance and coding annotation are the user's responsibility. |
+Install the development requirements:
 
-Accession-only CRISPRi is rejected because a nucleotide identifier alone does not
-establish the intended TSS. For custom CRISPRi, supply a 1-based TSS in genomic DNA
-oriented in the direction of transcription.
+\`\`\`bash
+python -m pip install -r requirements-dev.txt
+\`\`\`
 
-## Local specificity
+Run the test suite:
 
-The search covers the supplied **linear** reference, both strands, NGG PAMs and
-0–4 substitution mismatches. No alternate PAMs, bulges, variants or circular
-junctions are searched. Ambiguous sites are skipped and flagged.
+\`\`\`bash
+python -m pytest -q
+\`\`\`
 
-For an intended locus, enter the FASTA record ID, the 1-based left edge of the
-**whole input region** within that reference and its orientation. The full region
-must match; individual guide coordinates are then mapped explicitly. Leave the
-record ID blank to retain all exact matches. A wrong declaration is an error.
+The CI workflow also checks supported Python versions automatically.
 
-Twenty exact copies produce MIT specificity **4.76** with no intended locus,
-or **5.00** after one verified intended locus is excluded. Both values remain
-unchanged when showing 0, 1, 10 or all hit rows. These are reference-limited
-prioritization scores, not probabilities or a genome-wide safety certificate.
+---
 
-Every local report records the searched mismatch radius, complete Critical,
-High, Moderate and Low hit counts, and maximum per-site MIT and CFD risk. These
-summaries use every qualifying hit, including hits omitted from the displayed
-detail table. Searches limited to zero, one or two mismatches remain `REVIEW`.
-Any non-intended Critical or High hit also requires `REVIEW`, even when the
-aggregate MIT specificity is 50 or higher. No universal CFD pass cutoff is used.
+## Main files
 
-Limits: 2 Mb target, 5 Mb local reference, 500,000 indexed NGG sites, 50,000
-candidates and 100 million candidate/site comparisons. Oversized work is rejected
-with guidance instead of silently truncated screening.
+The project is divided into smaller modules so that each part has a clear job.
 
-## Scores and exports
+- \`app.py\` — Streamlit user interface.
+- \`grna_designer.py\` — main guide discovery and ranking logic.
+- \`crispri.py\` — CRISPRi-specific logic.
+- \`knockout.py\` — knockout-related genomic handling.
+- \`accession_lookup.py\` — biological accession retrieval.
+- \`sequence_io.py\` — FASTA and sequence input handling.
+- \`models.py\` — shared data structures.
+- \`reporting.py\` — result/export helpers.
+- \`network.py\` — network-related helper functions.
+- \`tests/\` — automated tests.
 
-- The sequence heuristic ranks knockout candidates; local MIT specificity breaks
-  ties. It is not a trained activity model or editing-success probability.
-- Optional GuideMaker Rule Set 2 uses an oriented 30-mer and is reported
-  separately. Missing context/provider gives N/A. CRISPRi does not use this
-  nuclease-activity model to predict repression.
-- MIT and bundled CFD aggregate **all** qualifying local hits. CFD data
-  provenance and CC0 dedication are in [third_party](third_party/README.md).
-- CSV and spacer FASTA support review. JSON includes settings, sequence/reference
-  SHA-256 fingerprints, genomic/TSS provenance, full hit counts and capped details.
-  Spacer FASTA does not include a scaffold or vector-specific cloning validation.
+For a deeper technical explanation, see:
+
+- [SCIENTIFIC_AUDIT.md](SCIENTIFIC_AUDIT.md)
+- [USER_GUIDE.md](USER_GUIDE.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [CHANGELOG.md](CHANGELOG.md)
+
+---
+
+## Exports
+
+The application can export reviewable results in formats such as:
+
+- CSV;
+- spacer FASTA;
+- JSON with settings and provenance.
+
+The JSON export records details such as sequence/reference fingerprints, selected settings, screening scope, hit counts, and genomic/TSS provenance when available.
+
+---
 
 ## Whole-genome adapter
 
-GuideScan2 requires an external executable (`guidescan`) and matching prebuilt
-index on the app host. The adapter exposes its raw per-hit CSV output separately;
-it does not rerank candidates or convert it into a local-checks-met status.
-GuideScan2's native specificity scale and formula differ from the local MIT/CFD
-aggregation. No-match output is not proof of a verified intended target. This
-release has offline adapter contract tests, not a live genome-index benchmark.
+The repository includes an optional GuideScan2 adapter.
 
-## Scientific boundaries
+GuideScan2 requires:
 
-CDS placement does not guarantee loss of function, frameshift, coverage of every
-isoform or experimental activity. Representative selection prefers an NP_ protein,
-then longest CDS; it is not a MANE/canonical assertion. CRISPRi does not measure
-active cellular TSS or chromatin. No variant-aware or experimental off-target
-validation is supplied. `LOCAL CHECKS MET` requires radius >=3 and no Critical or
-High local hit, but it still describes only the supplied reference and model scope.
-See the audit for test evidence and remaining limitations.
+- the external \`guidescan\` executable;
+- a matching prebuilt genome index.
 
-## Citation
+Its output is kept separate because GuideScan2 uses its own scoring system and should not be confused with the local MIT/CFD screen.
 
-Software citation metadata is provided in [CITATION.cff](CITATION.cff). Zenodo-ready release metadata is provided in [.zenodo.json](.zenodo.json); add a DOI only after Zenodo actually archives a release and mints one.
+---
+
+## Scientific limitations
+
+This program helps **prioritize** candidates.
+
+It does not guarantee:
+
+- loss of function;
+- frameshift formation;
+- activity in a specific cell type;
+- complete isoform coverage;
+- chromatin accessibility;
+- genome-wide safety;
+- experimental editing efficiency.
+
+Any final experimental guide should still be checked using appropriate genome-aware tools and biological validation.
+
+---
 
 ## Primary references
 
-- Hsu et al. (2013). DNA targeting specificity of RNA-guided Cas9 nucleases.
-  [DOI 10.1038/nbt.2647](https://doi.org/10.1038/nbt.2647).
-- Doench et al. (2016). Optimized sgRNA design to maximize activity and minimize
-  off-target effects of CRISPR-Cas9. [DOI 10.1038/nbt.3437](https://doi.org/10.1038/nbt.3437).
-- Gilbert et al. (2014). Genome-scale CRISPR-mediated control of gene repression
-  and activation. [DOI 10.1016/j.cell.2014.09.029](https://doi.org/10.1016/j.cell.2014.09.029).
-- Horlbeck et al. (2016). Compact and highly active next-generation libraries for
-  CRISPR-mediated gene repression and activation.
-  [DOI 10.7554/eLife.19760](https://doi.org/10.7554/eLife.19760).
-- Poudel et al. (2022). GuideMaker: Software to design CRISPR-Cas guide RNA pools
-  in non-model genomes. [DOI 10.1093/gigascience/giac007](https://doi.org/10.1093/gigascience/giac007).
-- [GuideScan2 official implementation](https://github.com/pritykinlab/guidescan-cli).
+- Hsu et al. (2013). *DNA targeting specificity of RNA-guided Cas9 nucleases.* DOI: 10.1038/nbt.2647
+- Doench et al. (2016). *Optimized sgRNA design to maximize activity and minimize off-target effects of CRISPR-Cas9.* DOI: 10.1038/nbt.3437
+- Gilbert et al. (2014). *Genome-scale CRISPR-mediated control of gene repression and activation.* DOI: 10.1016/j.cell.2014.09.029
+- Horlbeck et al. (2016). *Compact and highly active next-generation libraries for CRISPR-mediated gene repression and activation.* DOI: 10.7554/eLife.19760
+- Poudel et al. (2022). *GuideMaker: Software to design CRISPR-Cas guide RNA pools in non-model genomes.* DOI: 10.1093/gigascience/giac007
 
-MIT License; CFD weight data retain their separately documented CC0 dedication.
+GuideScan2 implementation: https://github.com/pritykinlab/guidescan-cli
+
+---
+
+## Citation and license
+
+Software citation metadata is available in [CITATION.cff](CITATION.cff).
+
+Zenodo-ready metadata is available in [.zenodo.json](.zenodo.json). A DOI should only be added after an actual archived release has received one.
+
+The original software is available under the **MIT License**.
+
+CFD weight data keep their separately documented CC0 dedication.
