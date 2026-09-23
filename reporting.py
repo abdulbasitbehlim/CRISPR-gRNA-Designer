@@ -1,25 +1,3 @@
-# ============================================================================
-# REPORTING
-# BEGINNER-FRIENDLY CODE GUIDE
-# ============================================================================
-#
-# PURPOSE: Turns analysis results into clear tables or downloadable report content.
-#
-# HOW TO READ THIS FILE:
-# 1. Start with the imports and constants.
-# 2. Read each function separately; every function performs one part of the workflow.
-# 3. Follow the function calls from the application/workflow rather than trying to
-#    understand the entire file at once.
-# 4. Scientific equations, thresholds, validation rules and public function names
-#    are intentionally kept unchanged while the code is being humanized.
-#
-# MAIN TOP-LEVEL PARTS IN THIS FILE:
-# - function: sequence_hash
-# - function: make_metadata
-# - function: _finite
-# - function: export_json
-# ============================================================================
-
 """Strict JSON export and reproducible sequence/reference fingerprints."""
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -28,18 +6,10 @@ import json
 import math
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: sequence_hash
-# ----------------------------------------------------------------------------
 def sequence_hash(sequence):
     return hashlib.sha256(sequence.encode('ascii')).hexdigest()
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: make_metadata
-# ----------------------------------------------------------------------------
 def make_metadata(sequence, reference, **settings):
     return {
         'created_utc': datetime.now(timezone.utc).isoformat(),
@@ -52,10 +22,6 @@ def make_metadata(sequence, reference, **settings):
     }
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: _finite
-# ----------------------------------------------------------------------------
 def _finite(value):
     if isinstance(value, float) and not math.isfinite(value):
         return None
@@ -66,10 +32,6 @@ def _finite(value):
     return value
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: export_json
-# ----------------------------------------------------------------------------
 def export_json(metadata, guides, rows=None, genome_rows=None):
     data = {
         'metadata': metadata,

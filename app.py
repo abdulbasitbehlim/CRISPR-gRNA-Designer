@@ -1,31 +1,4 @@
 #!/usr/bin/env python3
-
-# ============================================================================
-# APP
-# BEGINNER-FRIENDLY CODE GUIDE
-# ============================================================================
-#
-# PURPOSE: Builds the Streamlit user interface and connects the input, design, validation and reporting steps.
-#
-# HOW TO READ THIS FILE:
-# 1. Start with the imports and constants.
-# 2. Read each function separately; every function performs one part of the workflow.
-# 3. Follow the function calls from the application/workflow rather than trying to
-#    understand the entire file at once.
-# 4. Scientific equations, thresholds, validation rules and public function names
-#    are intentionally kept unchanged while the code is being humanized.
-#
-# MAIN TOP-LEVEL PARTS IN THIS FILE:
-# - function: cached_fetch
-# - function: cached_tss
-# - function: cached_knockout
-# - function: cached_accession
-# - function: read_upload
-# - function: safe_name
-# - function: style_plot
-# - function: render_validation
-# ============================================================================
-
 """CRISPR Studio v3.3 professional Streamlit dashboard."""
 from __future__ import annotations
 
@@ -210,10 +183,6 @@ def cached_accession(accession, database):
     return fetch_accession(accession, database)
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: read_upload
-# ----------------------------------------------------------------------------
 def read_upload(f):
     if f is None:
         return ""
@@ -224,18 +193,10 @@ def read_upload(f):
         return b.decode("latin-1")
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: safe_name
-# ----------------------------------------------------------------------------
 def safe_name(s):
     return re.sub(r"[^A-Za-z0-9._-]+", "_", s).strip("_") or "crispr_guides"
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: style_plot
-# ----------------------------------------------------------------------------
 def style_plot(fig, height=420):
     fig.update_layout(
         template=plot_template,
@@ -249,10 +210,6 @@ def style_plot(fig, height=420):
     return fig
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: render_validation
-# ----------------------------------------------------------------------------
 def render_validation(g: GuideRNA, min_score):
     checks = validate_guide(g, min_score=min_score)
     items = [

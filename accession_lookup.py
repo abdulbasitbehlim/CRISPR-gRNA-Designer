@@ -1,30 +1,3 @@
-# ============================================================================
-# ACCESSION LOOKUP
-# BEGINNER-FRIENDLY CODE GUIDE
-# ============================================================================
-#
-# PURPOSE: Handles accession-based sequence lookup and retrieval used by the CRISPR application.
-#
-# HOW TO READ THIS FILE:
-# 1. Start with the imports and constants.
-# 2. Read each function separately; every function performs one part of the workflow.
-# 3. Follow the function calls from the application/workflow rather than trying to
-#    understand the entire file at once.
-# 4. Scientific equations, thresholds, validation rules and public function names
-#    are intentionally kept unchanged while the code is being humanized.
-#
-# MAIN TOP-LEVEL PARTS IN THIS FILE:
-# - class: AccessionRecord
-# - function: normalize_accession
-# - function: detect_database
-# - function: _ncbi_get
-# - function: fetch_ncbi_accession
-# - function: _ensembl_lookup
-# - function: _ensembl_sequence
-# - function: fetch_ensembl_accession
-# - function: fetch_accession
-# ============================================================================
-
 """Online accession lookup for CRISPR Studio.
 
 Supports nucleotide records from NCBI Nucleotide/RefSeq and stable IDs from
@@ -63,10 +36,6 @@ class AccessionRecord:
         return len(self.sequence)
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: normalize_accession
-# ----------------------------------------------------------------------------
 def normalize_accession(value: str) -> str:
     accession = value.strip()
     if not accession:
@@ -76,20 +45,12 @@ def normalize_accession(value: str) -> str:
     return accession
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: detect_database
-# ----------------------------------------------------------------------------
 def detect_database(accession: str) -> str:
     """Return 'ensembl' for ENS stable IDs; use NCBI otherwise."""
     accession = normalize_accession(accession).upper()
     return "ensembl" if accession.startswith("ENS") else "ncbi"
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: _ncbi_get
-# ----------------------------------------------------------------------------
 def _ncbi_get(path: str, params: dict) -> requests.Response:
     response = get(
         f"{NCBI_EUTILS}/{path}",
@@ -100,10 +61,6 @@ def _ncbi_get(path: str, params: dict) -> requests.Response:
     return response
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: fetch_ncbi_accession
-# ----------------------------------------------------------------------------
 def fetch_ncbi_accession(accession: str, max_bp: int = MAX_ONLINE_RECORD_BP) -> AccessionRecord:
     accession = normalize_accession(accession)
 
@@ -164,10 +121,6 @@ def fetch_ncbi_accession(accession: str, max_bp: int = MAX_ONLINE_RECORD_BP) -> 
     )
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: _ensembl_lookup
-# ----------------------------------------------------------------------------
 def _ensembl_lookup(accession: str) -> dict:
     response = get(
         f"{ENSEMBL_REST}/lookup/id/{accession}?expand=1",
@@ -179,10 +132,6 @@ def _ensembl_lookup(accession: str) -> dict:
     return response.json()
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: _ensembl_sequence
-# ----------------------------------------------------------------------------
 def _ensembl_sequence(stable_id: str, sequence_type: Optional[str] = None) -> str:
     params = f"?type={sequence_type}" if sequence_type else ""
     response = get(
@@ -195,10 +144,6 @@ def _ensembl_sequence(stable_id: str, sequence_type: Optional[str] = None) -> st
     return clean_dna_sequence(response.text)
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: fetch_ensembl_accession
-# ----------------------------------------------------------------------------
 def fetch_ensembl_accession(accession: str, max_bp: int = MAX_ONLINE_RECORD_BP) -> AccessionRecord:
     accession = normalize_accession(accession)
     base, _, requested_version = accession.partition('.')
@@ -238,10 +183,6 @@ def fetch_ensembl_accession(accession: str, max_bp: int = MAX_ONLINE_RECORD_BP) 
     )
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: fetch_accession
-# ----------------------------------------------------------------------------
 def fetch_accession(accession: str, database: str = "Auto") -> AccessionRecord:
     """Fetch an online nucleotide target using Auto, NCBI, or Ensembl routing."""
     accession = normalize_accession(accession)

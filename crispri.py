@@ -1,32 +1,3 @@
-# ============================================================================
-# CRISPRI
-# BEGINNER-FRIENDLY CODE GUIDE
-# ============================================================================
-#
-# PURPOSE: Contains CRISPR interference (CRISPRi) helper logic used when designing repression-oriented guides.
-#
-# HOW TO READ THIS FILE:
-# 1. Start with the imports and constants.
-# 2. Read each function separately; every function performs one part of the workflow.
-# 3. Follow the function calls from the application/workflow rather than trying to
-#    understand the entire file at once.
-# 4. Scientific equations, thresholds, validation rules and public function names
-#    are intentionally kept unchanged while the code is being humanized.
-#
-# MAIN TOP-LEVEL PARTS IN THIS FILE:
-# - function: species_slug
-# - class: TSSContext
-# - class: CRISPRiGuide
-# - function: _canonical_transcript
-# - function: fetch_ensembl_tss_context
-# - function: tss_band
-# - function: _spacer_interval
-# - function: _genomic_interval
-# - function: _genomic_guide_strand
-# - function: design_crispri_guides
-# - function: design_crispri_from_sequence
-# ============================================================================
-
 """TSS-aware CRISPRi design utilities for CRISPR Studio.
 
 Gene-based CRISPRi uses the canonical Ensembl transcript TSS and retrieves a
@@ -65,10 +36,6 @@ SPECIES_ALIASES = {
 }
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: species_slug
-# ----------------------------------------------------------------------------
 def species_slug(organism: str) -> str:
     key = organism.strip().lower()
     return SPECIES_ALIASES.get(key, key.replace(" ", "_"))
@@ -128,10 +95,6 @@ class CRISPRiGuide:
         return row
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: _canonical_transcript
-# ----------------------------------------------------------------------------
 def _canonical_transcript(gene_record: Dict[str, object]) -> Dict[str, object]:
     transcripts = gene_record.get("Transcript", []) or []
     if not transcripts:
@@ -144,10 +107,6 @@ def _canonical_transcript(gene_record: Dict[str, object]) -> Dict[str, object]:
     raise ValueError("No canonical transcript is annotated; provide an explicit transcript ID.")
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: fetch_ensembl_tss_context
-# ----------------------------------------------------------------------------
 def fetch_ensembl_tss_context(
     gene_name: str,
     organism: str,
@@ -239,10 +198,6 @@ def fetch_ensembl_tss_context(
     )
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: tss_band
-# ----------------------------------------------------------------------------
 def tss_band(distance: int) -> tuple[str, int]:
     if CRISPRI_OPTIMAL_MIN <= distance <= CRISPRI_OPTIMAL_MAX:
         return "Preferred (+50 to +100)", 3
@@ -251,20 +206,12 @@ def tss_band(distance: int) -> tuple[str, int]:
     return "CRISPRi window", 1
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: _spacer_interval
-# ----------------------------------------------------------------------------
 def _spacer_interval(guide: GuideRNA) -> tuple[int, int]:
     if guide.strand == "+":
         return guide.start, guide.end - 3
     return guide.start + 3, guide.end
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: _genomic_interval
-# ----------------------------------------------------------------------------
 def _genomic_interval(context: TSSContext, start: int, end: int) -> tuple[int, int]:
     """Map a 0-based half-open interval in transcription-oriented sequence to 1-based genome coords."""
     if context.transcript_strand == 1:
@@ -276,20 +223,12 @@ def _genomic_interval(context: TSSContext, start: int, end: int) -> tuple[int, i
     return min(g_start, g_end), max(g_start, g_end)
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: _genomic_guide_strand
-# ----------------------------------------------------------------------------
 def _genomic_guide_strand(context: TSSContext, guide_strand: str) -> str:
     if context.transcript_strand == 1:
         return guide_strand
     return "+" if guide_strand == "-" else "-"
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: design_crispri_guides
-# ----------------------------------------------------------------------------
 def design_crispri_guides(
     context: TSSContext,
     max_guides: int = 20,
@@ -358,10 +297,6 @@ def design_crispri_guides(
     return annotated[:max_guides]
 
 
-
-# ----------------------------------------------------------------------------
-# FUNCTION / CLASS SECTION: design_crispri_from_sequence
-# ----------------------------------------------------------------------------
 def design_crispri_from_sequence(
     sequence: str,
     tss_position_1based: int,
