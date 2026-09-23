@@ -1,7 +1,32 @@
+# ============================================================================
+# SEQUENCE IO
+# BEGINNER-FRIENDLY CODE GUIDE
+# ============================================================================
+#
+# PURPOSE: Reads, cleans and validates sequence input before guide design begins.
+#
+# HOW TO READ THIS FILE:
+# 1. Start with the imports and constants.
+# 2. Read each function separately; every function performs one part of the workflow.
+# 3. Follow the function calls from the application/workflow rather than trying to
+#    understand the entire file at once.
+# 4. Scientific equations, thresholds, validation rules and public function names
+#    are intentionally kept unchanged while the code is being humanized.
+#
+# MAIN TOP-LEVEL PARTS IN THIS FILE:
+# - function: _normalize
+# - function: parse_reference
+# - function: clean_dna_sequence
+# ============================================================================
+
 """Strict sequence input handling; FASTA records are never silently joined."""
 import re
 
 
+
+# ----------------------------------------------------------------------------
+# FUNCTION / CLASS SECTION: _normalize
+# ----------------------------------------------------------------------------
 def _normalize(raw: str) -> str:
     sequence = re.sub(r"[\s\d]", "", raw).upper().replace("U", "T")
     sequence = re.sub(r"[RYSWKMBDHVX]", "N", sequence)
@@ -11,6 +36,10 @@ def _normalize(raw: str) -> str:
     return sequence
 
 
+
+# ----------------------------------------------------------------------------
+# FUNCTION / CLASS SECTION: parse_reference
+# ----------------------------------------------------------------------------
 def parse_reference(raw: str) -> dict[str, str]:
     """Read plain DNA or strict multi-FASTA, preserving record identity."""
     if not raw or not raw.strip():
@@ -48,6 +77,10 @@ def parse_reference(raw: str) -> dict[str, str]:
     return records
 
 
+
+# ----------------------------------------------------------------------------
+# FUNCTION / CLASS SECTION: clean_dna_sequence
+# ----------------------------------------------------------------------------
 def clean_dna_sequence(raw: str) -> str:
     """Normalize a single target. Ambiguity stays N and is not a design base."""
     records = parse_reference(raw)
